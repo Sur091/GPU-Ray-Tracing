@@ -1,52 +1,37 @@
+// A shader in Bevy
+
 use bevy::prelude::*;
+
+mod custom_material;
+use custom_material::CustomMaterial;
+
 
 pub fn run() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(HelloPlugin)
+        .add_plugins((DefaultPlugins, MaterialPlugin::<CustomMaterial>::default()))
+        .add_systems(Startup, setup)
         .run();
 }
 
-#[derive(Component)]
-struct Person;
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<CustomMaterial>>,
+) {
 
-#[derive(Component)]
-struct Name(String);
-
-#[derive(Resource)]
-struct GreetTimer(Timer);
-
-
-fn add_people(mut commands: Commands) {
-    commands.spawn((Person, Name("Elaina Proctor".to_string())));
-    commands.spawn((Person, Name("Renzo Hume".to_string())));
-    commands.spawn((Person, Name("Zayna Nieves".to_string())));
-}
-fn greet_people(time: Res<Time>, mut timer: ResMut<GreetTimer>, query: Query<&Name, With<Person>>) {
-    // update our timer with the time elapsed since the last update
-    // if that caused the timer to finish, we say hello to everyone
-    if timer.0.tick(time.delta()).just_finished() {
-        for name in &query {
-            println!("hello {}!", name.0);
-        }
-    }
+    commands.spawn((
+            Mesh3d(meshes.add(Cuboid::default())),
+            MeshMaterial3d(materials.add(CustomMaterial {
+                color: LinearRgba::RED,
+            })),
+            Transform::from_xyz(0.0, 0.5, 0.0),
+        ));
+    
+    commands.spawn((
+            Camera3d::default(),
+            Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ));
+    
 }
 
-fn update_people(mut query: Query<&mut Name, With<Person>>) {
-    for mut name in &mut query {
-        if name.0 == "Elaina Proctor" {
-            name.0 = "Elaina Hume".to_string();
-            break; // We don't need to change any other names.
-        }
-    }
-}
 
-pub struct HelloPlugin;
-
-impl Plugin for HelloPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(GreetTimer(Timer::from_seconds(2.0, TimerMode::Repeating)));
-        app.add_systems(Startup, add_people);
-        app.add_systems(Update, (update_people, greet_people).chain());
-    }
-}

@@ -1,14 +1,17 @@
 // A shader in Bevy
 
 use bevy::prelude::*;
+use bevy::sprite::Material2dPlugin;
 
 mod custom_material;
 use custom_material::CustomMaterial;
 
-
 pub fn run() {
     App::new()
-        .add_plugins((DefaultPlugins, MaterialPlugin::<CustomMaterial>::default()))
+        .add_plugins((
+            DefaultPlugins,
+            Material2dPlugin::<CustomMaterial>::default(),
+        ))
         .add_systems(Startup, setup)
         .run();
 }
@@ -18,20 +21,13 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<CustomMaterial>>,
 ) {
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::default())),
+        MeshMaterial2d(materials.add(CustomMaterial {
+            color: LinearRgba::BLUE,
+        })),
+        Transform::default().with_scale(Vec3::splat(256.)),
+    ));
 
-    commands.spawn((
-            Mesh3d(meshes.add(Cuboid::default())),
-            MeshMaterial3d(materials.add(CustomMaterial {
-                color: LinearRgba::RED,
-            })),
-            Transform::from_xyz(0.0, 0.5, 0.0),
-        ));
-    
-    commands.spawn((
-            Camera3d::default(),
-            Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ));
-    
+    commands.spawn(Camera2d);
 }
-
-

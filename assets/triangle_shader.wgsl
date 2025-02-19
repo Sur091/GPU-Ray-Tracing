@@ -12,7 +12,7 @@
 //     return vec4<f32>(pos, 0.0, 1.0);
 // }
 
-#import bevy_pbr::forward_io::VertexOutput
+#import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
 @group(2) @binding(0) var<uniform> material_color: vec4<f32>;
 

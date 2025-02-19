@@ -1,5 +1,5 @@
-
+use gpu_ray_tracing::run;
 
 fn main() {
-    println!("Will start a bevy project.");
+    run();
 }

@@ -24,15 +24,15 @@ pub fn setup_scene(
         })),
         Transform::from_xyz(0.0, 1.0, 1.5),
     ));
-    
+
     // Spawn a big sphere
     commands.spawn((
-        Mesh3d(meshes.add(Sphere::new(10.5).mesh().uv(32, 18))),
+        Mesh3d(meshes.add(Sphere::new(10.5).mesh().uv(64, 36))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: SKY_BLUE.into(),
             ..default()
         })),
-        Transform::from_xyz(0.0, 1.0, -13.5),
+        Transform::from_xyz(0.0, -12.0, -13.5),
     ));
 
     // ambient light
@@ -67,6 +67,6 @@ pub fn setup_scene(
     // camera
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }

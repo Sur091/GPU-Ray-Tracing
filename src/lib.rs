@@ -2,11 +2,27 @@
 
 use bevy::prelude::*;
 
+mod compute_shader;
 mod scene;
+
+const WINDOW_SIZE: (u32, u32) = (1920, 1080);
 
 pub fn run() {
     App::new()
-        .add_plugins((DefaultPlugins,))
-        .add_systems(Startup, scene::setup_scene)
+        .insert_resource(ClearColor(Color::BLACK))
+        .add_plugins((
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        resolution: (WINDOW_SIZE.0 as f32, WINDOW_SIZE.1 as f32).into(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(ImagePlugin::default_nearest()),
+            compute_shader::ComputeShaderPlugin,
+        ))
+        .add_systems(Startup, compute_shader::setup_compute_shader)
+        .add_systems(Update, compute_shader::switch_textures)
         .run();
 }

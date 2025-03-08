@@ -20,26 +20,23 @@ use std::borrow::Cow;
 /// This example uses a shader source file from the assets subdirectory
 const SHADER_ASSET_PATH: &str = "compute_shader_example.wgsl";
 
-const DISPLAY_FACTOR: u32 = 4;
+// const DISPLAY_FACTOR: u32 = 4;
 // const SIZE: (u32, u32) = (1280 / DISPLAY_FACTOR, 720 / DISPLAY_FACTOR);
 const WORKGROUP_SIZE: u32 = 8;
 
 pub fn setup_compute_shader(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    windows: Query<&Window>,
 ) {
-    let window = windows.single();
-    let (window_width, window_height) = (window.resolution.width(), window.resolution.height());
     let mut image = Image::new_fill(
         Extent3d {
-            width: window_width as u32,
-            height: window_height as u32,
+            width: crate::WINDOW_SIZE.0,
+            height: crate::WINDOW_SIZE.1,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
         &[0, 0, 0, 255],
-        TextureFormat::R32Float,
+        TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
     image.texture_descriptor.usage =
@@ -50,10 +47,10 @@ pub fn setup_compute_shader(
     commands.spawn((
         Sprite {
             image: image0.clone(),
-            custom_size: Some(Vec2::new(window_width, window_height)),
+            custom_size: Some(Vec2::new(crate::WINDOW_SIZE.0 as f32, crate::WINDOW_SIZE.1 as f32)),
             ..default()
         },
-        Transform::from_scale(Vec3::splat(DISPLAY_FACTOR as f32)),
+        Transform::default(),
     ));
     commands.spawn(Camera2d);
 
@@ -112,11 +109,11 @@ fn prepare_bind_group(
     mut commands: Commands,
     pipeline: Res<ComputeShaderPipeline>,
     gpu_images: Res<RenderAssets<GpuImage>>,
-    game_of_life_images: Res<ComputeShaderImages>,
+    compute_shader_images: Res<ComputeShaderImages>,
     render_device: Res<RenderDevice>,
 ) {
-    let view_a = gpu_images.get(&game_of_life_images.texture_a).unwrap();
-    let view_b = gpu_images.get(&game_of_life_images.texture_b).unwrap();
+    let view_a = gpu_images.get(&compute_shader_images.texture_a).unwrap();
+    let view_b = gpu_images.get(&compute_shader_images.texture_b).unwrap();
     let bind_group_0 = render_device.create_bind_group(
         None,
         &pipeline.texture_bind_group_layout,
@@ -145,8 +142,8 @@ impl FromWorld for ComputeShaderPipeline {
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
-                    texture_storage_2d(TextureFormat::R32Float, StorageTextureAccess::ReadOnly),
-                    texture_storage_2d(TextureFormat::R32Float, StorageTextureAccess::WriteOnly),
+                    texture_storage_2d(TextureFormat::Rgba8Unorm, StorageTextureAccess::ReadOnly),
+                    texture_storage_2d(TextureFormat::Rgba8Unorm, StorageTextureAccess::WriteOnly),
                 ),
             ),
         );
@@ -186,15 +183,13 @@ enum ComputeShaderState {
 }
 
 struct ComputeShaderNode {
-    state: ComputeShaderState,
-    window_size: (u32, u32),
+    state: ComputeShaderState
 }
 
 impl Default for ComputeShaderNode {
     fn default() -> Self {
         Self {
-            state: ComputeShaderState::Loading,
-            window_size: (1280, 720),
+            state: ComputeShaderState::Loading
         }
     }
 }
@@ -258,8 +253,8 @@ impl render_graph::Node for ComputeShaderNode {
                 pass.set_bind_group(0, &bind_groups[0], &[]);
                 pass.set_pipeline(init_pipeline);
                 pass.dispatch_workgroups(
-                    self.window_size.0 / WORKGROUP_SIZE,
-                    self.window_size.1 / WORKGROUP_SIZE,
+                    crate::WINDOW_SIZE.0 / WORKGROUP_SIZE,
+                    crate::WINDOW_SIZE.1 / WORKGROUP_SIZE,
                     1,
                 );
             }
@@ -270,8 +265,8 @@ impl render_graph::Node for ComputeShaderNode {
                 pass.set_bind_group(0, &bind_groups[index], &[]);
                 pass.set_pipeline(update_pipeline);
                 pass.dispatch_workgroups(
-                    self.window_size.0 / WORKGROUP_SIZE,
-                    self.window_size.1 / WORKGROUP_SIZE,
+                    crate::WINDOW_SIZE.0 / WORKGROUP_SIZE,
+                    crate::WINDOW_SIZE.1 / WORKGROUP_SIZE,
                     1,
                 );
             }

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 mod compute_shader;
 mod scene;
 
-const WINDOW_SIZE: (u32, u32) = (1920, 1080);
+const WINDOW_SIZE: (u32, u32) = (1280, 720);
 
 pub fn run() {
     App::new()

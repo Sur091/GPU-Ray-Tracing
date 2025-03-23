@@ -3,13 +3,17 @@
 //! Compute shaders use the GPU for computing arbitrary information, that may be independent of what
 //! is rendered to the screen.
 
+use crate::scene::camera::SceneCamera;
 use bevy::{
     prelude::*,
     render::{
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_asset::{RenderAssetUsages, RenderAssets},
         render_graph::{self, RenderGraph, RenderLabel},
-        render_resource::{binding_types::texture_storage_2d, *},
+        render_resource::{
+            binding_types::{texture_storage_2d, uniform_buffer},
+            *,
+        },
         renderer::{RenderContext, RenderDevice},
         texture::GpuImage,
         Render, RenderApp, RenderSet,
@@ -24,10 +28,7 @@ const SHADER_ASSET_PATH: &str = "compute_shader_example.wgsl";
 // const SIZE: (u32, u32) = (1280 / DISPLAY_FACTOR, 720 / DISPLAY_FACTOR);
 const WORKGROUP_SIZE: u32 = 8;
 
-pub fn setup_compute_shader(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-) {
+pub fn setup_compute_shader(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let mut image = Image::new_fill(
         Extent3d {
             width: crate::WINDOW_SIZE.0,
@@ -47,7 +48,10 @@ pub fn setup_compute_shader(
     commands.spawn((
         Sprite {
             image: image0.clone(),
-            custom_size: Some(Vec2::new(crate::WINDOW_SIZE.0 as f32, crate::WINDOW_SIZE.1 as f32)),
+            custom_size: Some(Vec2::new(
+                crate::WINDOW_SIZE.0 as f32,
+                crate::WINDOW_SIZE.1 as f32,
+            )),
             ..default()
         },
         Transform::default(),
@@ -58,6 +62,8 @@ pub fn setup_compute_shader(
         texture_a: image0,
         texture_b: image1,
     });
+
+    commands.insert_resource(SceneCamera::default());
 }
 
 // Switch texture to display every frame to show the one that was written to most recently.
@@ -78,7 +84,10 @@ impl Plugin for ComputeShaderPlugin {
     fn build(&self, app: &mut App) {
         // Extract the game of life image resource from the main world into the render world
         // for operation on by the compute shader and display on the sprite.
-        app.add_plugins(ExtractResourcePlugin::<ComputeShaderImages>::default());
+        app.add_plugins((
+            ExtractResourcePlugin::<ComputeShaderImages>::default(),
+            ExtractResourcePlugin::<SceneCamera>::default(),
+        ));
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(
             Render,
@@ -105,15 +114,35 @@ pub struct ComputeShaderImages {
 #[derive(Resource)]
 struct ComputeShaderImageBindGroups([BindGroup; 2]);
 
+#[derive(Resource)]
+struct CameraBindGroup(BindGroup);
+
 fn prepare_bind_group(
     mut commands: Commands,
     pipeline: Res<ComputeShaderPipeline>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     compute_shader_images: Res<ComputeShaderImages>,
     render_device: Res<RenderDevice>,
+    scene_camera: Res<SceneCamera>,
 ) {
     let view_a = gpu_images.get(&compute_shader_images.texture_a).unwrap();
     let view_b = gpu_images.get(&compute_shader_images.texture_b).unwrap();
+
+    let camera_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("Camera Buffer"),
+        contents: bytemuck::cast_slice(&[scene_camera.clone()]),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+
+    let camera_bind_group = render_device.create_bind_group(
+        None,
+        &pipeline.camera_bind_group_layout,
+        &[BindGroupEntry {
+            binding: 0,
+            resource: camera_buffer.as_entire_binding(),
+        }],
+    );
+
     let bind_group_0 = render_device.create_bind_group(
         None,
         &pipeline.texture_bind_group_layout,
@@ -125,11 +154,13 @@ fn prepare_bind_group(
         &BindGroupEntries::sequential((&view_b.texture_view, &view_a.texture_view)),
     );
     commands.insert_resource(ComputeShaderImageBindGroups([bind_group_0, bind_group_1]));
+    commands.insert_resource(CameraBindGroup(camera_bind_group));
 }
 
 #[derive(Resource)]
 struct ComputeShaderPipeline {
     texture_bind_group_layout: BindGroupLayout,
+    camera_bind_group_layout: BindGroupLayout,
     init_pipeline: CachedComputePipelineId,
     update_pipeline: CachedComputePipelineId,
 }
@@ -147,11 +178,21 @@ impl FromWorld for ComputeShaderPipeline {
                 ),
             ),
         );
+        let camera_bind_group_layout = render_device.create_bind_group_layout(
+            "ComputeShaderCamera",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (uniform_buffer::<SceneCamera>(false),),
+            ),
+        );
         let shader = world.load_asset(SHADER_ASSET_PATH);
         let pipeline_cache = world.resource::<PipelineCache>();
         let init_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: None,
-            layout: vec![texture_bind_group_layout.clone()],
+            layout: vec![
+                texture_bind_group_layout.clone(),
+                camera_bind_group_layout.clone(),
+            ],
             push_constant_ranges: Vec::new(),
             shader: shader.clone(),
             shader_defs: vec![],
@@ -160,7 +201,10 @@ impl FromWorld for ComputeShaderPipeline {
         });
         let update_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: None,
-            layout: vec![texture_bind_group_layout.clone()],
+            layout: vec![
+                texture_bind_group_layout.clone(),
+                camera_bind_group_layout.clone(),
+            ],
             push_constant_ranges: Vec::new(),
             shader,
             shader_defs: vec![],
@@ -170,6 +214,7 @@ impl FromWorld for ComputeShaderPipeline {
 
         ComputeShaderPipeline {
             texture_bind_group_layout,
+            camera_bind_group_layout,
             init_pipeline,
             update_pipeline,
         }
@@ -183,13 +228,13 @@ enum ComputeShaderState {
 }
 
 struct ComputeShaderNode {
-    state: ComputeShaderState
+    state: ComputeShaderState,
 }
 
 impl Default for ComputeShaderNode {
     fn default() -> Self {
         Self {
-            state: ComputeShaderState::Loading
+            state: ComputeShaderState::Loading,
         }
     }
 }
@@ -236,6 +281,7 @@ impl render_graph::Node for ComputeShaderNode {
         world: &World,
     ) -> Result<(), render_graph::NodeRunError> {
         let bind_groups = &world.resource::<ComputeShaderImageBindGroups>().0;
+        let camera_bind_group = &world.resource::<CameraBindGroup>().0;
         let pipeline_cache = world.resource::<PipelineCache>();
         let pipeline = world.resource::<ComputeShaderPipeline>();
 
@@ -251,6 +297,7 @@ impl render_graph::Node for ComputeShaderNode {
                     .get_compute_pipeline(pipeline.init_pipeline)
                     .unwrap();
                 pass.set_bind_group(0, &bind_groups[0], &[]);
+                pass.set_bind_group(1, camera_bind_group, &[]);
                 pass.set_pipeline(init_pipeline);
                 pass.dispatch_workgroups(
                     crate::WINDOW_SIZE.0 / WORKGROUP_SIZE,
@@ -263,6 +310,7 @@ impl render_graph::Node for ComputeShaderNode {
                     .get_compute_pipeline(pipeline.update_pipeline)
                     .unwrap();
                 pass.set_bind_group(0, &bind_groups[index], &[]);
+                pass.set_bind_group(1, camera_bind_group, &[]);
                 pass.set_pipeline(update_pipeline);
                 pass.dispatch_workgroups(
                     crate::WINDOW_SIZE.0 / WORKGROUP_SIZE,

@@ -4,7 +4,8 @@ use bevy::color::palettes::css::*;
 use bevy::pbr::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
 
-mod camera;
+pub mod camera;
+pub mod compute_shader;
 
 // #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 // struct Scene;
@@ -69,4 +70,16 @@ pub fn setup_scene(
         Camera3d::default(),
         Transform::from_xyz(0.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+}
+
+pub fn extract_camera(mut commands: Commands, camera_query: Query<&Transform, With<Camera3d>>) {
+    if let Ok(camera_transform) = camera_query.get_single() {
+        commands.insert_resource(camera::SceneCamera {
+            position: camera_transform.translation,
+            view_direction: camera_transform.forward().into(),
+            focal_length: 1.0,
+            viewport_height: 2.0,
+            _padding: Vec4::ZERO,
+        });
+    }
 }

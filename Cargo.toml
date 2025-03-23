@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.15"
+bytemuck = "1.22.0"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

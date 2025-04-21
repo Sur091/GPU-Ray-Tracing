@@ -11,7 +11,8 @@ pub struct SceneCamera {
     pub focal_length: f32,
     pub view_direction: Vec3,
     pub viewport_height: f32,
-    pub _padding: Vec4,
+    pub _padding: Vec3,
+    pub samples_per_pixel: u32,
 }
 
 impl Default for SceneCamera {
@@ -21,7 +22,8 @@ impl Default for SceneCamera {
             focal_length: 1.0,
             view_direction: -Vec3::Z,
             viewport_height: 2.0,
-            _padding: Vec4::ZERO,
+            samples_per_pixel: 50,
+            _padding: Vec3::ZERO,
         }
     }
 }

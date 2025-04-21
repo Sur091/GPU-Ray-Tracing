@@ -14,7 +14,9 @@ struct CameraUniform {
     focal_length: f32,
     view_direction: vec3<f32>,
     viewport_height: f32,
-    _padding: vec4<f32>,
+    
+    _padding: vec3<f32>,
+    samples_per_pixel: u32,
 }
 
 
@@ -143,6 +145,24 @@ fn ray_color(r: Ray, sphere_list: ptr<function, SphereList>) -> vec3<f32> {
     return (1.0-a)*vec3<f32>(1.0, 1.0, 1.0) + a*vec3<f32>(0.5, 0.7, 1.0);
 }
 
+fn sample_square(seed: u32) -> vec3<f32> {
+    let x = randomFloat(seed) - 0.5;
+    let y = randomFloat(seed * seed) - 0.5;
+    return vec3<f32>(x, y, 0.0);
+}
+
+fn get_ray(location: vec2<i32>, viewport_upper_left: vec3<f32>, pixel_delta_u: vec3<f32>, pixel_delta_v: vec3<f32>, camera_center: vec3<f32>, sample_index: u32) -> Ray {
+    let offset = sample_square(sample_index);
+    
+    // Calculate pixel center
+    let pixel_center = viewport_upper_left
+        + pixel_delta_u * (f32(location.x) + 0.5 + offset.x)
+        + pixel_delta_v * (f32(location.y) + 0.5 + offset.y);
+        
+    let ray_direction = pixel_center - camera_center;
+    
+    return Ray(camera_center, ray_direction);
+}
 
 @compute @workgroup_size(8, 8, 1)
 fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
@@ -176,19 +196,20 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
         - viewport_v / 2.0
         - focal_length * w;
 
-    // Calculate pixel center
-    let pixel_center = viewport_upper_left
-        + pixel_delta_u * (f32(location.x) + 0.5)
-        + pixel_delta_v * (f32(location.y) + 0.5);
-
-    let ray_direction = pixel_center - camera_center;
-    let r = Ray(camera_center, ray_direction);
-
     let sphere1 = Sphere(vec3<f32>(0.0, 0.0, -1.0), 0.5);
     let sphere2 = Sphere(vec3<f32>(0.0, -100.5, -1.0), 100.0);
 
     var sphere_list = SphereList(array<Sphere, NUMBER_OF_SPHERES>(sphere1, sphere2));
+    
+    let pixel_sample_scale = 1.0 / f32(camera.samples_per_pixel);
 
-    let color = vec4<f32>(ray_color(r, &sphere_list), 1.0);
-    textureStore(output, location, color*color);
+    var pixel_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+
+    for (var i: u32 = 0; i < camera.samples_per_pixel; i++) {
+        let r = get_ray(location, viewport_upper_left, pixel_delta_u, pixel_delta_v, camera_center, i);
+        let color = vec4<f32>(ray_color(r, &sphere_list), 1.0);
+        pixel_color += color * color;
+    }
+    pixel_color *= pixel_sample_scale;
+    textureStore(output, location, pixel_color);
 }

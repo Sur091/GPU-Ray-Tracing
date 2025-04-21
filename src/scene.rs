@@ -11,7 +11,7 @@ pub mod compute_shader;
 // struct Scene;
 
 // Set up the scene
-pub fn setup_scene(
+pub fn _setup_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -79,7 +79,8 @@ pub fn extract_camera(mut commands: Commands, camera_query: Query<&Transform, Wi
             view_direction: camera_transform.forward().into(),
             focal_length: 1.0,
             viewport_height: 2.0,
-            _padding: Vec4::ZERO,
+            _padding: Vec3::ZERO,
+            samples_per_pixel: 50,
         });
     }
 }

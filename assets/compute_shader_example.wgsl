@@ -15,7 +15,7 @@ struct CameraUniform {
     view_direction: vec3<f32>,
     viewport_height: f32,
     
-    _padding: vec3<f32>,
+    random_seeds: vec3<f32>,
     samples_per_pixel: u32,
 }
 
@@ -36,6 +36,7 @@ fn hash(value: u32) -> u32 {
 fn randomFloat(value: u32) -> f32 {
     return f32(hash(value)) / 4294967295.0;
 }
+
 
 @compute @workgroup_size(8, 8, 1)
 fn init(@builtin(global_invocation_id) invocation_id: vec3<u32>, @builtin(num_workgroups) num_workgroups: vec3<u32>) {
@@ -131,18 +132,66 @@ fn sphere_hit(sphere: Sphere, r: Ray, ray_tmin: f32, ray_tmax: f32, rec: ptr<fun
     return true;
 }
 
+// Generate a random vec3 with components in [0,1]
+fn random_vec3(seed: u32) -> vec3<f32> {
+    // Use different derived seeds for each component
+    return vec3<f32>(
+        randomFloat(seed),
+        randomFloat(seed + 1u),
+        randomFloat(seed + 2u)
+    );
+}
 
+// Generate a random unit vector (a point on the unit sphere)
+fn random_unit_vector(seed: u32) -> vec3<f32> {
+    // Generate 3 random components
+    let z = 2.0 * randomFloat(seed) - 1.0;
+    let a = randomFloat(seed + 1u) * 6.283185307;
+    let r = sqrt(1.0 - z*z);
+    let x = r * cos(a);
+    let y = r * sin(a);
+    
+    return vec3<f32>(x, y, z);
+}
 
-fn ray_color(r: Ray, sphere_list: ptr<function, SphereList>) -> vec3<f32> {
-    var hit_record = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false);
-    let t = sphere_list_hit(sphere_list, r, 0.0, 3.4e35, &hit_record);
-    if t {
-        return 0.5 * (hit_record.normal + 1.0);
+// Generate a random unit vector in hemisphere around normal
+fn random_in_hemisphere(normal: vec3<f32>, seed: u32) -> vec3<f32> {
+    // Get random unit vector
+    let unit_vector = random_unit_vector(seed);
+    
+    // Check if it's in the same hemisphere as the normal
+    // (dot product > 0 means the angle is less than 90 degrees)
+    if dot(unit_vector, normal) > 0.0 {
+        // Already in correct hemisphere
+        return unit_vector;
+    } else {
+        // In opposite hemisphere, so flip it
+        return -unit_vector;
     }
+}
 
+const MAX_DEPTH: u32 = 50;
+fn ray_color(ray: Ray, sphere_list: ptr<function, SphereList>, seed: u32) -> vec3<f32> {
+    var r = ray;
+    var color_factor = 1.0;
+    for (var i: u32 = 0; i < MAX_DEPTH; i++) {
+        var hit_record = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false);
+        let t = sphere_list_hit(sphere_list, r, 0.0, 3.4e35, &hit_record);
+        if t {
+            let bounce_seed = hash(seed + i * 1000u);
+            let random_direction = hit_record.normal + random_in_hemisphere(hit_record.normal, bounce_seed);
+            r = Ray(hit_record.p + hit_record.normal * 0.001, random_direction);
+            color_factor *= 0.3;
+        }
+        else {
+            break;
+        }
+    }
+    
     let unit_direction = normalize(r.direction);
     let a = 0.5*(unit_direction.y + 1.0);
-    return (1.0-a)*vec3<f32>(1.0, 1.0, 1.0) + a*vec3<f32>(0.5, 0.7, 1.0);
+    let sky_color = (1.0-a)*vec3<f32>(1.0, 1.0, 1.0) + a*vec3<f32>(0.5, 0.7, 1.0);
+    return color_factor * sky_color;
 }
 
 fn sample_square(seed: u32) -> vec3<f32> {
@@ -152,7 +201,10 @@ fn sample_square(seed: u32) -> vec3<f32> {
 }
 
 fn get_ray(location: vec2<i32>, viewport_upper_left: vec3<f32>, pixel_delta_u: vec3<f32>, pixel_delta_v: vec3<f32>, camera_center: vec3<f32>, sample_index: u32) -> Ray {
-    let offset = sample_square(sample_index);
+    let seed = hash(hash(u32(location.x) * 73u) ^ 
+               (hash(u32(location.y) * 51u)) ^ 
+               (sample_index * 25u + u32(camera.random_seeds.x * 1000000.0)));
+    let offset = sample_square(seed);
     
     // Calculate pixel center
     let pixel_center = viewport_upper_left
@@ -204,11 +256,11 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     let pixel_sample_scale = 1.0 / f32(camera.samples_per_pixel);
 
     var pixel_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-
+    
     for (var i: u32 = 0; i < camera.samples_per_pixel; i++) {
-        let r = get_ray(location, viewport_upper_left, pixel_delta_u, pixel_delta_v, camera_center, i);
-        let color = vec4<f32>(ray_color(r, &sphere_list), 1.0);
-        pixel_color += color * color;
+        let r = get_ray(location, viewport_upper_left, pixel_delta_u, pixel_delta_v, camera_center, i+u32(camera.random_seeds.x * 4294967295.0));
+        let color = vec4<f32>(ray_color(r, &sphere_list, i), 1.0);
+        pixel_color += color;
     }
     pixel_color *= pixel_sample_scale;
     textureStore(output, location, pixel_color);

@@ -4,6 +4,8 @@ use bevy::color::palettes::css::*;
 use bevy::pbr::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
 
+use rand::Rng;
+
 pub mod camera;
 pub mod compute_shader;
 
@@ -73,13 +75,14 @@ pub fn _setup_scene(
 }
 
 pub fn extract_camera(mut commands: Commands, camera_query: Query<&Transform, With<Camera3d>>) {
+    let mut rng = rand::rng();
     if let Ok(camera_transform) = camera_query.get_single() {
         commands.insert_resource(camera::SceneCamera {
             position: camera_transform.translation,
             view_direction: camera_transform.forward().into(),
             focal_length: 1.0,
             viewport_height: 2.0,
-            _padding: Vec3::ZERO,
+            _padding: Vec3::new(rng.random(), rng.random(), rng.random()),
             samples_per_pixel: 50,
         });
     }

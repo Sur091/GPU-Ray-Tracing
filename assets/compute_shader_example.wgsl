@@ -70,7 +70,7 @@ fn lambertian_scatter(material: Material, ray: Ray, hit_record: HitRecord, atten
 }
 
 fn metal_scatter(material: Material, ray: Ray, hit_record: HitRecord, attenuation: ptr<function, vec3<f32>>, scattered: ptr<function, Ray>, seed: u32) -> bool {
-    let reflected = reflect(ray.direction, hit_record.normal);
+    let reflected = normalize(reflect(ray.direction, hit_record.normal)) + material.albedo.w * random_unit_vector(seed);
     *scattered = Ray(hit_record.p + hit_record.normal * 0.001, reflected);
     *attenuation = material.albedo.xyz;
     return dot(reflected, ray.direction) > 0.0;
@@ -90,7 +90,7 @@ struct Sphere {
     material: Material
 }
 
-const NUMBER_OF_SPHERES = 2;
+const NUMBER_OF_SPHERES = 4;
 struct SphereList {
     spheres: array<Sphere, NUMBER_OF_SPHERES>
 }
@@ -212,7 +212,7 @@ fn ray_color(ray: Ray, sphere_list: ptr<function, SphereList>, seed: u32) -> vec
             // If material is lambertian
             if (hit_record.material.albedo.w < -1.0) {
                 lambertian_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed);
-            } else if (hit_record.material.albedo.w < 1.0) {
+            } else if (hit_record.material.albedo.w <= 1.0) {
                 metal_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed);
             } else {
                 attenuation = vec3<f32>(0.0);
@@ -284,11 +284,19 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
         - viewport_u / 2.0
         - viewport_v / 2.0
         - focal_length * w;
+        
+    
+    let material_ground = Material(vec4<f32>(0.8, 0.8, 0.0, -2.0));
+    let material_center = Material(vec4<f32>(0.1, 0.2, 0.5, -2.0));
+    let material_left   = Material(vec4<f32>(0.8, 0.8, 0.8, 0.3));
+    let material_right  = Material(vec4<f32>(0.8, 0.6, 0.2, 1.0));
 
-    let sphere1 = Sphere(vec3<f32>(0.0, 0.0, -1.0), 0.5, Material(vec4<f32>(0.8, 0.3, 0.3, -2.0)));
-    let sphere2 = Sphere(vec3<f32>(0.0, -100.5, -1.0), 100.0, Material(vec4<f32>(0.8, 0.8, 0.0, -2.0)));
+    let sphere2 = Sphere(vec3<f32>(0.0, -100.5, -1.0), 100.0, material_ground);
+    let sphere1 = Sphere(vec3<f32>(0.0, 0.0, -1.2), 0.5, material_center);
+    let sphere3 = Sphere(vec3<f32>(-1.0, 0.0, -1.0), 0.5, material_left);
+    let sphere4 = Sphere(vec3<f32>(1.0, 0.0, -1.0), 0.5, material_right);
 
-    var sphere_list = SphereList(array<Sphere, NUMBER_OF_SPHERES>(sphere1, sphere2));
+    var sphere_list = SphereList(array<Sphere, NUMBER_OF_SPHERES>(sphere1, sphere2, sphere3, sphere4));
     
     let pixel_sample_scale = 1.0 / f32(camera.samples_per_pixel);
 

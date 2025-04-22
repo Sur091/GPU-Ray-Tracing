@@ -51,16 +51,43 @@ struct Ray {
     direction: vec3<f32>
 }
 
+// material.albedo.z < -1.0 means the material is lambertian
+// material.albedo.z between -1.0 and 1.0 means the material is metallic
+// material.albedo.z > 1.0 means the material is refractive
+struct Material {
+    albedo: vec4<f32>,
+}
+
+fn lambertian_scatter(material: Material, ray: Ray, hit_record: HitRecord, attenuation: ptr<function, vec3<f32>>, scattered: ptr<function, Ray>, seed: u32) -> bool {
+    var scattered_direction = hit_record.normal + random_unit_vector(seed);
+    // Ignore zero-length vectors
+    if (dot(scattered_direction, scattered_direction) < 1e-6) {
+        scattered_direction = hit_record.normal;
+    }
+    *scattered =  Ray(hit_record.p + hit_record.normal * 0.001, scattered_direction);
+    *attenuation = material.albedo.xyz;
+    return true;
+}
+
+fn metal_scatter(material: Material, ray: Ray, hit_record: HitRecord, attenuation: ptr<function, vec3<f32>>, scattered: ptr<function, Ray>, seed: u32) -> bool {
+    let reflected = reflect(ray.direction, hit_record.normal);
+    *scattered = Ray(hit_record.p + hit_record.normal * 0.001, reflected);
+    *attenuation = material.albedo.xyz;
+    return dot(reflected, ray.direction) > 0.0;
+}
+
 struct HitRecord {
     t: f32,
     p: vec3<f32>,
     normal: vec3<f32>,
-    front_face: bool
+    front_face: bool,
+    material: Material
 }
 
 struct Sphere {
     center: vec3<f32>,
-    radius: f32
+    radius: f32,
+    material: Material
 }
 
 const NUMBER_OF_SPHERES = 2;
@@ -71,11 +98,11 @@ struct SphereList {
 fn hit_record_set_face_normal(rec: ptr<function, HitRecord>, r: Ray, outward_normal: vec3<f32>) {
     let front_face = dot(r.direction, outward_normal) < 0.0;
     let normal = select(-outward_normal, outward_normal, front_face);
-    *rec = HitRecord((*rec).t, (*rec).p, normal, front_face);
+    *rec = HitRecord((*rec).t, (*rec).p, normal, front_face, (*rec).material);
 }
 
 fn sphere_list_hit(sphere_list: ptr<function, SphereList>, r: Ray, ray_tmin: f32, ray_tmax: f32, rec: ptr<function, HitRecord>) -> bool {
-    var temp_rec = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false);
+    var temp_rec = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false, Material(vec4<f32>(0.0)));
     var hit_anything = false;
     var closest_so_far = ray_tmax;
 
@@ -123,7 +150,8 @@ fn sphere_hit(sphere: Sphere, r: Ray, ray_tmin: f32, ray_tmax: f32, rec: ptr<fun
         root,
         hit_point,
         outward_normal,
-        false
+        false,
+        sphere.material
     );
 
     // Set the face normal
@@ -173,15 +201,24 @@ fn random_in_hemisphere(normal: vec3<f32>, seed: u32) -> vec3<f32> {
 const MAX_DEPTH: u32 = 50;
 fn ray_color(ray: Ray, sphere_list: ptr<function, SphereList>, seed: u32) -> vec3<f32> {
     var r = ray;
-    var color_factor = 1.0;
+    var color_factor = vec3<f32>(1.0);
     for (var i: u32 = 0; i < MAX_DEPTH; i++) {
-        var hit_record = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false);
+        var hit_record = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false, Material(vec4<f32>(0.0)));
         let t = sphere_list_hit(sphere_list, r, 0.0, 3.4e35, &hit_record);
         if t {
-            let bounce_seed = hash(seed + i * 1000u);
-            let random_direction = hit_record.normal + random_in_hemisphere(hit_record.normal, bounce_seed);
-            r = Ray(hit_record.p + hit_record.normal * 0.001, random_direction);
-            color_factor *= 0.3;
+            let seed = hash(seed + i * 1000u);
+            var scattered = Ray(vec3<f32>(0.0), vec3<f32>(0.0));
+            var attenuation = vec3<f32>(0.0);
+            // If material is lambertian
+            if (hit_record.material.albedo.w < -1.0) {
+                lambertian_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed);
+            } else if (hit_record.material.albedo.w < 1.0) {
+                metal_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed);
+            } else {
+                attenuation = vec3<f32>(0.0);
+            }
+            color_factor *= attenuation;
+            r = scattered;
         }
         else {
             break;
@@ -248,8 +285,8 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
         - viewport_v / 2.0
         - focal_length * w;
 
-    let sphere1 = Sphere(vec3<f32>(0.0, 0.0, -1.0), 0.5);
-    let sphere2 = Sphere(vec3<f32>(0.0, -100.5, -1.0), 100.0);
+    let sphere1 = Sphere(vec3<f32>(0.0, 0.0, -1.0), 0.5, Material(vec4<f32>(0.8, 0.3, 0.3, -2.0)));
+    let sphere2 = Sphere(vec3<f32>(0.0, -100.5, -1.0), 100.0, Material(vec4<f32>(0.8, 0.8, 0.0, -2.0)));
 
     var sphere_list = SphereList(array<Sphere, NUMBER_OF_SPHERES>(sphere1, sphere2));
     

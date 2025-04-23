@@ -71,9 +71,36 @@ fn lambertian_scatter(material: Material, ray: Ray, hit_record: HitRecord, atten
 
 fn metal_scatter(material: Material, ray: Ray, hit_record: HitRecord, attenuation: ptr<function, vec3<f32>>, scattered: ptr<function, Ray>, seed: u32) -> bool {
     let reflected = normalize(reflect(ray.direction, hit_record.normal)) + material.albedo.w * random_unit_vector(seed);
-    *scattered = Ray(hit_record.p + hit_record.normal * 0.001, reflected);
+    *scattered = Ray(hit_record.p + hit_record.normal * 0.001, normalize(reflected));
     *attenuation = material.albedo.xyz;
-    return dot(reflected, ray.direction) > 0.0;
+    return dot(reflected, hit_record.normal) > 0.0;
+}
+
+fn dielectric_scatter(material: Material, ray: Ray, hit_record: HitRecord, attenuation: ptr<function, vec3<f32>>, scattered: ptr<function, Ray>, seed: u32) -> bool {
+    *attenuation = vec3<f32>(1.0);
+    let refraction_ratio = select(material.albedo.x, 1.0 / material.albedo.x, hit_record.front_face);
+    
+    let unit_direction = normalize(ray.direction);
+    let cos_theta = min(dot(-unit_direction, hit_record.normal), 1.0);
+    let sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+    
+    // Check for total internal reflection
+    let cannot_refract = refraction_ratio * sin_theta > 1.0;
+    
+    // Direction to use (either reflected or refracted)
+    let direction = select(
+        refract(unit_direction, hit_record.normal, refraction_ratio),
+        reflect(unit_direction, hit_record.normal),
+        cannot_refract
+    );
+    
+    // Choose the correct offset direction based on whether we're entering or exiting
+    let offset_direction = select(-hit_record.normal, hit_record.normal, hit_record.front_face);
+    
+    // Ensure direction is normalized and valid
+    *scattered = Ray(hit_record.p + offset_direction * 0.001, normalize(direction));
+    
+    return true;
 }
 
 struct HitRecord {
@@ -198,7 +225,7 @@ fn random_in_hemisphere(normal: vec3<f32>, seed: u32) -> vec3<f32> {
     }
 }
 
-const MAX_DEPTH: u32 = 50;
+const MAX_DEPTH: u32 = 5;
 fn ray_color(ray: Ray, sphere_list: ptr<function, SphereList>, seed: u32) -> vec3<f32> {
     var r = ray;
     var color_factor = vec3<f32>(1.0);
@@ -211,11 +238,17 @@ fn ray_color(ray: Ray, sphere_list: ptr<function, SphereList>, seed: u32) -> vec
             var attenuation = vec3<f32>(0.0);
             // If material is lambertian
             if (hit_record.material.albedo.w < -1.0) {
-                lambertian_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed);
+                if (!lambertian_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed)) {
+                    return vec3<f32>(0.0);
+                }
             } else if (hit_record.material.albedo.w <= 1.0) {
-                metal_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed);
+                if (!metal_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed)) {
+                    return vec3<f32>(0.0);
+                }
             } else {
-                attenuation = vec3<f32>(0.0);
+                if (!dielectric_scatter(hit_record.material, r, hit_record, &attenuation, &scattered, seed)) {
+                    return vec3<f32>(0.0);
+                }
             }
             color_factor *= attenuation;
             r = scattered;
@@ -288,7 +321,7 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     
     let material_ground = Material(vec4<f32>(0.8, 0.8, 0.0, -2.0));
     let material_center = Material(vec4<f32>(0.1, 0.2, 0.5, -2.0));
-    let material_left   = Material(vec4<f32>(0.8, 0.8, 0.8, 0.3));
+    let material_left   = Material(vec4<f32>(1.5, 0.8, 0.8, 2.3));
     let material_right  = Material(vec4<f32>(0.8, 0.6, 0.2, 1.0));
 
     let sphere2 = Sphere(vec3<f32>(0.0, -100.5, -1.0), 100.0, material_ground);

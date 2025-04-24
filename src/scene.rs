@@ -4,7 +4,7 @@ use bevy::color::palettes::css::*;
 use bevy::pbr::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
 
-use rand::Rng;
+// use rand::Rng;
 
 pub mod camera;
 pub mod compute_shader;
@@ -74,16 +74,46 @@ pub fn _setup_scene(
     ));
 }
 
-pub fn extract_camera(mut commands: Commands, camera_query: Query<&Transform, With<Camera3d>>) {
-    let mut rng = rand::rng();
-    if let Ok(camera_transform) = camera_query.get_single() {
-        commands.insert_resource(camera::SceneCamera {
-            position: camera_transform.translation,
-            view_direction: camera_transform.forward().into(),
-            focal_length: 1.0,
-            viewport_height: 2.0,
-            _padding: Vec3::new(rng.random(), rng.random(), rng.random()),
-            samples_per_pixel: 50,
-        });
+pub fn setup_camera_settings(mut commands: Commands) {
+    commands.insert_resource(camera::CameraSettings::default());
+}
+
+// System to update camera settings and detect changes for reset
+pub fn update_camera_settings(
+    mut settings: ResMut<camera::CameraSettings>,
+    camera_query: Query<&Transform, With<Camera3d>>,
+    // Add inputs to move camera later if needed
+    // input: Res<ButtonInput<KeyCode>>,
+) {
+    if let Ok(transform) = camera_query.get_single() {
+        let mut changed = false;
+        if transform.translation != settings.position {
+            settings.position = transform.translation;
+            changed = true;
+        }
+        let forward = transform.forward().into();
+        if forward != settings.view_direction {
+            settings.view_direction = forward;
+            changed = true;
+        }
+
+        // Add checks for other changes (fov, movement keys, etc.)
+        // if input.just_pressed(KeyCode::W) { changed = true; } // Example
+
+        if changed {
+            settings.needs_reset = true;
+            settings.frame_count = 0;
+            info!("Camera changed, resetting accumulation.");
+        } else {
+            // Only increment frame count if not resetting
+            settings.needs_reset = false; // Reset handled, clear flag for next frame
+            settings.frame_count += 1;
+        }
     }
+}
+
+// Extract the derived SceneCamera uniform data
+pub fn extract_camera_uniform(mut commands: Commands, settings: Res<camera::CameraSettings>) {
+    // Ensure the resource is updated or inserted for the render world
+    commands.insert_resource(camera::SceneCamera::from(settings.as_ref()));
 }

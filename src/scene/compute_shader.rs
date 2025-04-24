@@ -1,10 +1,5 @@
-//! A compute shader that simulates Conway's Game of Life.
-//!
-//! Compute shaders use the GPU for computing arbitrary information, that may be independent of what
-//! is rendered to the screen.
-
-use crate::scene::camera::SceneCamera;
 use bevy::{
+    asset::load_internal_asset,
     prelude::*,
     render::{
         extract_resource::{ExtractResource, ExtractResourcePlugin},
@@ -18,62 +13,31 @@ use bevy::{
         texture::GpuImage,
         Render, RenderApp, RenderSet,
     },
+    // Import necessary sprite components for Bevy 0.15
+    sprite::{Material2d, Material2dPlugin},
 };
+
+use crate::scene::camera::SceneCamera;
+
 use std::borrow::Cow;
 
-/// This example uses a shader source file from the assets subdirectory
-const SHADER_ASSET_PATH: &str = "compute_shader_example.wgsl";
+/// Asset path for the compute shader.
+// const SHADER_ASSET_PATH: &str = "compute_shader_example.wgsl";
 
-// const DISPLAY_FACTOR: u32 = 4;
-// const SIZE: (u32, u32) = (1280 / DISPLAY_FACTOR, 720 / DISPLAY_FACTOR);
+/// Handle for the internal post-processing shader asset.
+const POST_PROCESS_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(1420694201_u128.wrapping_add(1)); // Ensure uniqueness
+/// Handle for the internal custom vertex shader asset.
+const POST_PROCESS_VERTEX_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(1420694201_u128.wrapping_add(2)); // Ensure uniqueness
+/// Handle for the internal compute shader asset.
+const COMPUTE_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(1420694201_u128.wrapping_add(3)); // Ensure uniqueness
+
+/// Workgroup size for the compute shader (must match the shader!).
 const WORKGROUP_SIZE: u32 = 8;
 
-pub fn setup_compute_shader(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    let mut image = Image::new_fill(
-        Extent3d {
-            width: crate::WINDOW_SIZE.0,
-            height: crate::WINDOW_SIZE.1,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        &[0, 0, 0, 255],
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    image.texture_descriptor.usage =
-        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-    let image0 = images.add(image.clone());
-    let image1 = images.add(image);
-
-    commands.spawn((
-        Sprite {
-            image: image0.clone(),
-            custom_size: Some(Vec2::new(
-                crate::WINDOW_SIZE.0 as f32,
-                crate::WINDOW_SIZE.1 as f32,
-            )),
-            ..default()
-        },
-        Transform::default(),
-    ));
-    commands.spawn(Camera2d);
-
-    commands.insert_resource(ComputeShaderImages {
-        texture_a: image0,
-        texture_b: image1,
-    });
-
-    commands.insert_resource(SceneCamera::default());
-}
-
-// Switch texture to display every frame to show the one that was written to most recently.
-pub fn switch_textures(images: Res<ComputeShaderImages>, mut sprite: Single<&mut Sprite>) {
-    if sprite.image == images.texture_a {
-        sprite.image = images.texture_b.clone_weak();
-    } else {
-        sprite.image = images.texture_a.clone_weak();
-    }
-}
+// --- Plugin Setup ---
 
 pub struct ComputeShaderPlugin;
 
@@ -82,239 +46,413 @@ struct ComputeShaderLabel;
 
 impl Plugin for ComputeShaderPlugin {
     fn build(&self, app: &mut App) {
-        // Extract the game of life image resource from the main world into the render world
-        // for operation on by the compute shader and display on the sprite.
-        app.add_plugins((
-            ExtractResourcePlugin::<ComputeShaderImages>::default(),
-            ExtractResourcePlugin::<SceneCamera>::default(),
-        ));
-        let render_app = app.sub_app_mut(RenderApp);
-        render_app.add_systems(
-            Render,
-            prepare_bind_group.in_set(RenderSet::PrepareBindGroups),
+        load_internal_asset!(
+            app,
+            POST_PROCESS_SHADER_HANDLE,
+            "post_process.wgsl",
+            Shader::from_wgsl
         );
+        load_internal_asset!(
+            app,
+            POST_PROCESS_VERTEX_SHADER_HANDLE,
+            "post_process_vertex.wgsl", // Path relative to internal asset loading root
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            COMPUTE_SHADER_HANDLE,
+            "compute_shader_example.wgsl", // Load compute shader as internal asset
+            Shader::from_wgsl
+        );
+
+        app.add_plugins(Material2dPlugin::<PostProcessMaterial>::default())
+            .add_plugins((
+                ExtractResourcePlugin::<ComputeShaderImages>::default(),
+                ExtractResourcePlugin::<SceneCamera>::default(),
+            ));
+
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
+
+        render_app
+            // Initialize the resource using its Default implementation
+            .init_resource::<ComputeShaderPipeline>()
+            // Add the system to create layouts and queue the pipeline compilation
+            .add_systems(Render, prepare_compute_pipelines.in_set(RenderSet::Prepare))
+            // Add the system to create bind groups (depends on pipeline layouts)
+            .add_systems(
+                Render,
+                prepare_bind_groups.in_set(RenderSet::PrepareBindGroups),
+            );
 
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(ComputeShaderLabel, ComputeShaderNode::default());
         render_graph.add_node_edge(ComputeShaderLabel, bevy::render::graph::CameraDriverLabel);
     }
+}
 
-    fn finish(&self, app: &mut App) {
-        let render_app = app.sub_app_mut(RenderApp);
-        render_app.init_resource::<ComputeShaderPipeline>();
+// --- Material Definition ---
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct PostProcessMaterial {
+    // Explicitly set binding group 1 for texture and sampler
+    #[texture(0)]
+    #[sampler(1)]
+    source_image: Handle<Image>,
+}
+impl Material2d for PostProcessMaterial {
+    fn fragment_shader() -> ShaderRef {
+        POST_PROCESS_SHADER_HANDLE.into()
+    }
+    fn vertex_shader() -> ShaderRef {
+        POST_PROCESS_VERTEX_SHADER_HANDLE.into() // Use our custom vertex shader
     }
 }
 
+// --- Resources ---
 #[derive(Resource, Clone, ExtractResource)]
 pub struct ComputeShaderImages {
     texture_a: Handle<Image>,
     texture_b: Handle<Image>,
 }
-
 #[derive(Resource)]
 struct ComputeShaderImageBindGroups([BindGroup; 2]);
-
 #[derive(Resource)]
-struct CameraBindGroup(BindGroup);
+struct CameraUniformBindGroup(BindGroup);
 
-fn prepare_bind_group(
+/// Holds the compute pipeline layout and optional ID. Initialized via Default.
+#[derive(Resource, Default)] // Add Default derive
+struct ComputeShaderPipeline {
+    texture_bind_group_layout: Option<BindGroupLayout>, // Use Option
+    camera_bind_group_layout: Option<BindGroupLayout>,  // Use Option
+    update_pipeline: Option<CachedComputePipelineId>,   // Use Option
+}
+
+// --- Systems ---
+
+/// Creates the initial textures, compute shader images resource,
+/// and the 2D mesh entity for displaying the result.
+pub fn setup_compute_shader(
     mut commands: Commands,
-    pipeline: Res<ComputeShaderPipeline>,
+    mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<PostProcessMaterial>>,
+) {
+    // Create the first texture (Texture A)
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: crate::WINDOW_SIZE.0,
+            height: crate::WINDOW_SIZE.1,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0; 16],                        // 4x f32 = 16 bytes, initialized to zeros
+        TextureFormat::Rgba32Float,      // Crucial: Use float format for accumulation
+        RenderAssetUsages::RENDER_WORLD, // Available to the render world
+    );
+    // Set required usages for compute shader read/write and texture binding
+    image.texture_descriptor.usage =
+        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+    let image_a_handle = images.add(image.clone()); // Clone for the second handle
+
+    // Create the second texture (Texture B)
+    let image_b_handle = images.add(image);
+
+    // Store handles in a resource for easy access
+    commands.insert_resource(ComputeShaderImages {
+        texture_a: image_a_handle.clone(), // Clone for the resource
+        texture_b: image_b_handle,
+    });
+
+    // Create the mesh asset (a simple quad covering the screen/window)
+    let quad_mesh_handle = meshes.add(Rectangle::from_size(Vec2::new(
+        crate::WINDOW_SIZE.0 as f32,
+        crate::WINDOW_SIZE.1 as f32,
+    )));
+
+    // Create the material asset, initially pointing to Texture A
+    let material_handle = materials.add(PostProcessMaterial {
+        source_image: image_a_handle, // Start displaying texture A
+    });
+
+    // Spawn the 2D entity using individual components as MaterialMesh2dBundle is deprecated
+    commands.spawn((
+        Mesh2d(quad_mesh_handle), // Use the explicit wrapper struct Mesh2dHandle
+        MeshMaterial2d(material_handle), // Add ViewVisibility
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)), // Add Transform
+    ));
+
+    // Add a 2D camera to see the quad
+    commands.spawn(Camera2d::default()); // Use Camera2dBundle for clarity
+}
+
+/// Swaps the `source_image` handle in the `PostProcessMaterial` asset
+/// Swaps the `source_image` handle in the `PostProcessMaterial` assets.
+/// Note: This iterates through *all* loaded assets of this type.
+/// If multiple materials exist, this will swap textures in all of them.
+pub fn switch_textures(
+    images: Res<ComputeShaderImages>,
+    mut materials: ResMut<Assets<PostProcessMaterial>>,
+) {
+    // Iterate through all loaded PostProcessMaterial assets
+    for (_id, material_asset) in materials.iter_mut() {
+        // Swap the source image handle
+        if material_asset.source_image == images.texture_a {
+            material_asset.source_image = images.texture_b.clone_weak();
+            // info!("Switched post-process texture to B for asset");
+        } else {
+            material_asset.source_image = images.texture_a.clone_weak();
+            // info!("Switched post-process texture to A for asset");
+        }
+        // If you only want to modify ONE specific material, you'd need its Handle
+        // and use materials.get_mut(specific_handle) instead of iterating.
+    }
+}
+
+/// System that runs in the Render schedule to create layouts and queue the compute pipeline.
+fn prepare_compute_pipelines(
+    mut pipeline_res: ResMut<ComputeShaderPipeline>,
+    pipeline_cache: Res<PipelineCache>,
+    render_device: Res<RenderDevice>,
+    _asset_server: Res<AssetServer>,
+) {
+    let mut layouts_created_this_call = false;
+
+    // Create texture layout if it doesn't exist
+    if pipeline_res.texture_bind_group_layout.is_none() {
+        let layout = render_device.create_bind_group_layout(
+            Some("Compute Shader Images Layout"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    texture_storage_2d(TextureFormat::Rgba32Float, StorageTextureAccess::ReadOnly),
+                    texture_storage_2d(TextureFormat::Rgba32Float, StorageTextureAccess::WriteOnly),
+                ),
+            ),
+        );
+        pipeline_res.texture_bind_group_layout = Some(layout);
+        layouts_created_this_call = true;
+        debug!("Texture bind group layout created.");
+    }
+
+    // Create camera layout if it doesn't exist
+    if pipeline_res.camera_bind_group_layout.is_none() {
+        let layout = render_device.create_bind_group_layout(
+            Some("SceneCamera Layout"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                // Ensure SceneCamera is available for type check
+                (uniform_buffer::<SceneCamera>(false),),
+            ),
+        );
+        pipeline_res.camera_bind_group_layout = Some(layout);
+        layouts_created_this_call = true;
+        debug!("Camera bind group layout created.");
+    }
+
+    // Avoid queueing the pipeline in the same frame layouts were created,
+    // as other systems might need them immediately.
+    if layouts_created_this_call {
+        debug!("Layouts created, delaying pipeline queueing until next frame.");
+        return;
+    }
+
+    // Queue the pipeline only if layouts exist and pipeline ID is None
+    if pipeline_res.update_pipeline.is_none() {
+        // Use Option::zip to proceed only if both layouts are Some
+        if let Some((tex_layout, cam_layout)) = pipeline_res
+            .texture_bind_group_layout
+            .as_ref()
+            .zip(pipeline_res.camera_bind_group_layout.as_ref())
+        {
+            let shader: Handle<Shader> = COMPUTE_SHADER_HANDLE;
+            let layout_vec = vec![tex_layout.clone(), cam_layout.clone()];
+
+            let pipeline_id = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                label: Some("Update Pipeline".into()),
+                layout: layout_vec,
+                shader,
+                shader_defs: vec![],
+                entry_point: Cow::from("update"),
+                push_constant_ranges: Vec::new(),
+                zero_initialize_workgroup_memory: false,
+            });
+
+            pipeline_res.update_pipeline = Some(pipeline_id);
+            info!("Compute pipeline queued for compilation.");
+        } else {
+            // Should not happen if logic above is correct
+            error!("Layouts were expected but missing in prepare_compute_pipelines!");
+        }
+    }
+}
+
+/// Creates the bind groups required by the compute shader in the render world.
+fn prepare_bind_groups(
+    mut commands: Commands,
+    pipeline: Res<ComputeShaderPipeline>, // Use immutable reference here
     gpu_images: Res<RenderAssets<GpuImage>>,
     compute_shader_images: Res<ComputeShaderImages>,
     render_device: Res<RenderDevice>,
-    scene_camera: Res<SceneCamera>,
+    scene_camera_uniform: Res<SceneCamera>,
 ) {
-    let view_a = gpu_images.get(&compute_shader_images.texture_a).unwrap();
-    let view_b = gpu_images.get(&compute_shader_images.texture_b).unwrap();
+    // Get the layouts; return early if they aren't created yet.
+    let Some(texture_layout) = pipeline.texture_bind_group_layout.as_ref() else {
+        // Don't log every frame, maybe only once? Or use trace level
+        // debug!("Texture layout not ready for bind group creation.");
+        return;
+    };
+    let Some(camera_layout) = pipeline.camera_bind_group_layout.as_ref() else {
+        // debug!("Camera layout not ready for bind group creation.");
+        return;
+    };
 
+    // Get texture views. Guard against assets not being loaded yet.
+    let Some(view_a_gpu) = gpu_images.get(&compute_shader_images.texture_a) else {
+        return;
+    };
+    let Some(view_b_gpu) = gpu_images.get(&compute_shader_images.texture_b) else {
+        return;
+    };
+    let view_a = &view_a_gpu.texture_view;
+    let view_b = &view_b_gpu.texture_view;
+
+    // Create camera uniform buffer.
     let camera_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("Camera Buffer"),
-        contents: bytemuck::cast_slice(&[scene_camera.clone()]),
+        label: Some("SceneCamera Uniform Buffer"),
+        contents: bytemuck::bytes_of(scene_camera_uniform.as_ref()),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
 
+    // Create camera bind group using the existing layout.
     let camera_bind_group = render_device.create_bind_group(
-        None,
-        &pipeline.camera_bind_group_layout,
+        Some("SceneCamera Bind Group"),
+        camera_layout, // Use the obtained layout
         &[BindGroupEntry {
             binding: 0,
             resource: camera_buffer.as_entire_binding(),
         }],
     );
+    // Insert or update the resource. Use insert here as it runs every frame needed.
+    commands.insert_resource(CameraUniformBindGroup(camera_bind_group));
 
+    // Create texture bind groups using the existing layout.
     let bind_group_0 = render_device.create_bind_group(
-        None,
-        &pipeline.texture_bind_group_layout,
-        &BindGroupEntries::sequential((&view_a.texture_view, &view_b.texture_view)),
+        Some("Compute Shader Images Bind Group 0 (A->B)"),
+        texture_layout, // Use the obtained layout
+        &BindGroupEntries::sequential((view_a, view_b)),
     );
     let bind_group_1 = render_device.create_bind_group(
-        None,
-        &pipeline.texture_bind_group_layout,
-        &BindGroupEntries::sequential((&view_b.texture_view, &view_a.texture_view)),
+        Some("Compute Shader Images Bind Group 1 (B->A)"),
+        texture_layout, // Use the obtained layout
+        &BindGroupEntries::sequential((view_b, view_a)),
     );
+    // Insert or update the resource.
     commands.insert_resource(ComputeShaderImageBindGroups([bind_group_0, bind_group_1]));
-    commands.insert_resource(CameraBindGroup(camera_bind_group));
 }
 
-#[derive(Resource)]
-struct ComputeShaderPipeline {
-    texture_bind_group_layout: BindGroupLayout,
-    camera_bind_group_layout: BindGroupLayout,
-    init_pipeline: CachedComputePipelineId,
-    update_pipeline: CachedComputePipelineId,
-}
+// --- Compute Pipeline Setup ---
+// DELETE THE FromWorld impl entirely
 
-impl FromWorld for ComputeShaderPipeline {
-    fn from_world(world: &mut World) -> Self {
-        let render_device = world.resource::<RenderDevice>();
-        let texture_bind_group_layout = render_device.create_bind_group_layout(
-            "ComputeShaderImages",
-            &BindGroupLayoutEntries::sequential(
-                ShaderStages::COMPUTE,
-                (
-                    texture_storage_2d(TextureFormat::Rgba8Unorm, StorageTextureAccess::ReadOnly),
-                    texture_storage_2d(TextureFormat::Rgba8Unorm, StorageTextureAccess::WriteOnly),
-                ),
-            ),
-        );
-        let camera_bind_group_layout = render_device.create_bind_group_layout(
-            "ComputeShaderCamera",
-            &BindGroupLayoutEntries::sequential(
-                ShaderStages::COMPUTE,
-                (uniform_buffer::<SceneCamera>(false),),
-            ),
-        );
-        let shader = world.load_asset(SHADER_ASSET_PATH);
-        let pipeline_cache = world.resource::<PipelineCache>();
-        let init_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: None,
-            layout: vec![
-                texture_bind_group_layout.clone(),
-                camera_bind_group_layout.clone(),
-            ],
-            push_constant_ranges: Vec::new(),
-            shader: shader.clone(),
-            shader_defs: vec![],
-            entry_point: Cow::from("init"),
-            zero_initialize_workgroup_memory: false,
-        });
-        let update_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: None,
-            layout: vec![
-                texture_bind_group_layout.clone(),
-                camera_bind_group_layout.clone(),
-            ],
-            push_constant_ranges: Vec::new(),
-            shader,
-            shader_defs: vec![],
-            entry_point: Cow::from("update"),
-            zero_initialize_workgroup_memory: false,
-        });
-
-        ComputeShaderPipeline {
-            texture_bind_group_layout,
-            camera_bind_group_layout,
-            init_pipeline,
-            update_pipeline,
-        }
-    }
-}
-
+// --- Render Graph Node ---
+#[derive(Default)]
 enum ComputeShaderState {
+    #[default]
     Loading,
-    Init,
     Update(usize),
 }
-
+#[derive(Default)]
 struct ComputeShaderNode {
     state: ComputeShaderState,
 }
-
-impl Default for ComputeShaderNode {
-    fn default() -> Self {
-        Self {
-            state: ComputeShaderState::Loading,
-        }
-    }
-}
-
 impl render_graph::Node for ComputeShaderNode {
     fn update(&mut self, world: &mut World) {
-        let pipeline = world.resource::<ComputeShaderPipeline>();
+        /* ... unchanged ... */
+        let pipeline_res = world.resource::<ComputeShaderPipeline>();
         let pipeline_cache = world.resource::<PipelineCache>();
 
-        // if the corresponding pipeline has loaded, transition to the next stage
+        if world.get_resource::<CameraUniformBindGroup>().is_none()
+            || world
+                .get_resource::<ComputeShaderImageBindGroups>()
+                .is_none()
+        // Also check texture groups
+        {
+            self.state = ComputeShaderState::Loading;
+            return;
+        }
+
+        // Check if the pipeline ID exists in the resource yet
+        let Some(pipeline_id) = pipeline_res.update_pipeline else {
+            // Pipeline hasn't been queued by the prepare system yet
+            self.state = ComputeShaderState::Loading;
+            return;
+        };
+
         match self.state {
             ComputeShaderState::Loading => {
-                match pipeline_cache.get_compute_pipeline_state(pipeline.init_pipeline) {
+                // Check if the *queued* pipeline has finished compiling.
+                match pipeline_cache.get_compute_pipeline_state(pipeline_id) {
                     CachedPipelineState::Ok(_) => {
-                        self.state = ComputeShaderState::Init;
+                        self.state = ComputeShaderState::Update(0);
+                        info!("Compute pipeline ready, starting progressive rendering.");
                     }
                     CachedPipelineState::Err(err) => {
-                        panic!("Initializing assets/{SHADER_ASSET_PATH}:\n{err}")
+                        error!("Compute shader pipeline failed to compile: {err}");
+                        self.state = ComputeShaderState::Loading;
                     }
-                    _ => {}
+                    _ => {
+                        // Still compiling
+                        self.state = ComputeShaderState::Loading;
+                    }
                 }
             }
-            ComputeShaderState::Init => {
-                if let CachedPipelineState::Ok(_) =
-                    pipeline_cache.get_compute_pipeline_state(pipeline.update_pipeline)
-                {
-                    self.state = ComputeShaderState::Update(1);
-                }
+            ComputeShaderState::Update(index) => {
+                // Toggle the index for the next frame's bind group.
+                self.state = ComputeShaderState::Update(1 - index);
             }
-            ComputeShaderState::Update(0) => {
-                self.state = ComputeShaderState::Update(1);
-            }
-            ComputeShaderState::Update(1) => {
-                self.state = ComputeShaderState::Update(0);
-            }
-            ComputeShaderState::Update(_) => unreachable!(),
         }
     }
-
     fn run(
         &self,
         _graph: &mut render_graph::RenderGraphContext,
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), render_graph::NodeRunError> {
-        let bind_groups = &world.resource::<ComputeShaderImageBindGroups>().0;
-        let camera_bind_group = &world.resource::<CameraBindGroup>().0;
+        /* ... unchanged ... */
+        let texture_bind_groups = world.resource::<ComputeShaderImageBindGroups>();
+        let camera_bind_group = world.resource::<CameraUniformBindGroup>();
         let pipeline_cache = world.resource::<PipelineCache>();
-        let pipeline = world.resource::<ComputeShaderPipeline>();
+        let compute_pipeline_res = world.resource::<ComputeShaderPipeline>(); // Renamed to avoid conflict
+
+        // Get the pipeline ID *from the resource*
+        let Some(pipeline_id) = compute_pipeline_res.update_pipeline else {
+            debug!("Compute pipeline ID not available yet, skipping dispatch.");
+            return Ok(()); // Not an error, just waiting
+        };
+
+        // Get the compiled pipeline using the ID
+        let Some(update_pipeline) = pipeline_cache.get_compute_pipeline(pipeline_id) else {
+            debug!("Compute pipeline not compiled yet, skipping dispatch.");
+            return Ok(()); // Not an error, just waiting
+        };
 
         let mut pass = render_context
             .command_encoder()
             .begin_compute_pass(&ComputePassDescriptor::default());
 
-        // select the pipeline based on the current state
+        pass.set_bind_group(1, &camera_bind_group.0, &[]); // Set camera group
+
         match self.state {
-            ComputeShaderState::Loading => {}
-            ComputeShaderState::Init => {
-                let init_pipeline = pipeline_cache
-                    .get_compute_pipeline(pipeline.init_pipeline)
-                    .unwrap();
-                pass.set_bind_group(0, &bind_groups[0], &[]);
-                pass.set_bind_group(1, camera_bind_group, &[]);
-                pass.set_pipeline(init_pipeline);
-                pass.dispatch_workgroups(
-                    crate::WINDOW_SIZE.0 / WORKGROUP_SIZE,
-                    crate::WINDOW_SIZE.1 / WORKGROUP_SIZE,
-                    1,
-                );
+            ComputeShaderState::Loading => {
+                // Should ideally not be in Loading state if checks in update passed,
+                // but do nothing just in case.
             }
             ComputeShaderState::Update(index) => {
-                let update_pipeline = pipeline_cache
-                    .get_compute_pipeline(pipeline.update_pipeline)
-                    .unwrap();
-                pass.set_bind_group(0, &bind_groups[index], &[]);
-                pass.set_bind_group(1, camera_bind_group, &[]);
-                pass.set_pipeline(update_pipeline);
+                pass.set_pipeline(update_pipeline); // Set the obtained pipeline
+                pass.set_bind_group(0, &texture_bind_groups.0[index], &[]); // Set texture group
                 pass.dispatch_workgroups(
-                    crate::WINDOW_SIZE.0 / WORKGROUP_SIZE,
-                    crate::WINDOW_SIZE.1 / WORKGROUP_SIZE,
+                    (crate::WINDOW_SIZE.0 + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
+                    (crate::WINDOW_SIZE.1 + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
                     1,
                 );
             }

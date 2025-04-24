@@ -315,8 +315,8 @@ fn get_ray(
         + camera.pixel_delta_u * (f32(location.x) + 0.5 + offset.x)
         + camera.pixel_delta_v * (f32(location.y) + 0.5 + offset.y);
     
-    // let ray_origin = select(camera.center, defocus_disk_sample(seed+1u), camera.defocus_angle <= 0.0);
-    let ray_origin = defocus_disk_sample(seed+30u);
+    let ray_origin = select(camera.center, defocus_disk_sample(seed+1u), camera.defocus_angle > 0.0);
+    // let ray_origin = defocus_disk_sample(seed+30u);
 
     let ray_direction = pixel_center - ray_origin;
 

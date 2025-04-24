@@ -1,4 +1,3 @@
-
 use bevy::{
     prelude::*,
     render::{
@@ -45,18 +44,18 @@ pub fn run() {
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, switch_textures)
-        .add_systems(Update, extract_camera)
+        // Add camera movement systems
+        .add_systems(
+            Update,
+            (
+                camera::extract_camera,
+                camera::camera_movement_system,
+                camera::camera_mouse_controls_system,
+            ),
+        )
         .run();
 }
 
-// Extract camera settings into the render world
-fn extract_camera(camera_settings: Res<camera::CameraSettings>, mut commands: Commands) {
-    // Convert CameraSettings to the GPU-compatible SceneCamera
-    let scene_camera = camera::SceneCamera::from(camera_settings.as_ref());
-
-    // Insert as a resource that will be extracted to the render world
-    commands.insert_resource(scene_camera);
-}
 
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     // Initialize camera settings

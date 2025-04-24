@@ -9,7 +9,7 @@ struct SceneCamera {
     position: vec3<f32>,
     focal_length: f32,
     view_direction: vec3<f32>,
-    viewport_height: f32,
+    field_of_view: f32,
     reset_seed_depth_samples: vec4<f32>, // x: reset flag, y: random_seed, z: MAX_DEPTH, w: samples
 }
 @group(1) @binding(0) var<uniform> camera: SceneCamera;
@@ -298,7 +298,8 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
 
     // Use camera data from uniform buffer
     let focal_length = camera.focal_length;
-    let viewport_height = camera.viewport_height;
+    let h = tan(radians(camera.field_of_view / 2.0));
+    let viewport_height = 2.0 * h * focal_length;
     let viewport_width = viewport_height * aspect_ratio;
     let camera_center = camera.position;
 
@@ -347,6 +348,13 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     var sphere_list = SphereList(array<Sphere, NUMBER_OF_SPHERES>(sphere1, sphere2, sphere3, sphere4, sphere5));
 
     let samples_per_pixel = u32(camera.reset_seed_depth_samples.w);
+    
+    let reset = camera.reset_seed_depth_samples.x > 0.5;
+    
+    if (reset) {
+        color_until_now = vec3<f32>(0.0);
+        samples_until_now = 1u;
+    }
 
     if (samples_until_now < samples_per_pixel) {
         let seed = 1u + samples_until_now + u32(camera.reset_seed_depth_samples.y * 4294967295.0);

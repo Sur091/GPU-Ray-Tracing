@@ -13,6 +13,7 @@ pub struct CameraSettings {
     pub viewport_height: f32,
     pub number_of_samples: u32,
     pub camera_has_moved: bool,
+    pub max_depth: u32,
 }
 
 impl Default for CameraSettings {
@@ -22,8 +23,9 @@ impl Default for CameraSettings {
             focal_length: 1.0,
             view_direction: -Vec3::Z,
             viewport_height: 2.0,
-            number_of_samples: 50,
+            number_of_samples: 100,
             camera_has_moved: false,
+            max_depth: 50,
         }
     }
 }
@@ -36,7 +38,7 @@ pub struct SceneCamera {
     pub focal_length: f32,
     pub view_direction: Vec3,
     pub viewport_height: f32,
-    pub reset_un_un_samples: Vec4, // x: reset flag, y: unused, z: unused, w: samples
+    pub reset_seed_depth_samples: Vec4, // x: reset flag, y: random seed, z: max_depth, w: samples
 }
 
 impl From<&CameraSettings> for SceneCamera {
@@ -46,10 +48,10 @@ impl From<&CameraSettings> for SceneCamera {
             focal_length: settings.focal_length,
             view_direction: settings.view_direction,
             viewport_height: settings.viewport_height,
-            reset_un_un_samples: Vec4::new(
+            reset_seed_depth_samples: Vec4::new(
                 if settings.camera_has_moved { 1.0 } else { 0.0 }, // The reset flag
-                0.0,
-                0.0,
+                rand::random::<f32>(), // The random seed
+                settings.max_depth as f32, // max_depth
                 settings.number_of_samples as f32, // The number of samples
             ),
         }

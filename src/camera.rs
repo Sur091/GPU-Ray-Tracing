@@ -56,8 +56,8 @@ pub fn _camera_mouse_controls_system(
         // Adjust field of view based on scroll direction
         // Scrolling up (positive y) decreases FOV (zooms in)
         // Scrolling down (negative y) increases FOV (zooms out)
-        let zoom_delta = -event.y * MOUSE_ZOOM_SENSITIVITY;
-        let new_fov = (camera_settings.field_of_view + zoom_delta).clamp(FOV_MIN, FOV_MAX);
+        let zoom_delta = -event.y * _MOUSE_ZOOM_SENSITIVITY;
+        let new_fov = (camera_settings.field_of_view + zoom_delta).clamp(_FOV_MIN, _FOV_MAX);
 
         if new_fov != camera_settings.field_of_view {
             camera_settings.field_of_view = new_fov;
@@ -71,7 +71,7 @@ pub fn _camera_mouse_controls_system(
         for event in mouse_motion.read() {
             // Horizontal movement (x) rotates around Y axis (yaw)
             if event.delta.x != 0.0 {
-                let rotation = Quat::from_rotation_y(-event.delta.x * MOUSE_MOVE_SENSITIVITY);
+                let rotation = Quat::from_rotation_y(-event.delta.x * _MOUSE_MOVE_SENSITIVITY);
                 let view_direction = camera_settings.look_at - camera_settings.look_from;
                 let len = view_direction.length();
                 let view_direction = rotation.mul_vec3(view_direction).normalize();
@@ -89,7 +89,7 @@ pub fn _camera_mouse_controls_system(
 
                 // Create rotation around the right vector (pitch)
                 let rotation =
-                    Quat::from_axis_angle(right, -event.delta.y * MOUSE_MOVE_SENSITIVITY);
+                    Quat::from_axis_angle(right, -event.delta.y * _MOUSE_MOVE_SENSITIVITY);
 
                 // Apply rotation - but check to prevent flipping over
                 let new_direction = rotation.mul_vec3(forward).normalize();
@@ -114,10 +114,10 @@ pub fn _camera_mouse_controls_system(
 const CAMERA_MOVE_SPEED: f32 = 2.0; // Units per second
 const CAMERA_ROTATE_SPEED: f32 = 1.0; // Radians per second
 const CAMERA_VERTICAL_SPEED: f32 = 1.0; // Units per second
-const MOUSE_ZOOM_SENSITIVITY: f32 = 1.0; // FOV change per scroll unit
-const MOUSE_MOVE_SENSITIVITY: f32 = 0.002; // Movement sensitivity
-const FOV_MIN: f32 = 10.0; // Minimum field of view (degrees)
-const FOV_MAX: f32 = 120.0; // Maximum field of view (degrees)
+const _MOUSE_ZOOM_SENSITIVITY: f32 = 1.0; // FOV change per scroll unit
+const _MOUSE_MOVE_SENSITIVITY: f32 = 0.002; // Movement sensitivity
+const _FOV_MIN: f32 = 10.0; // Minimum field of view (degrees)
+const _FOV_MAX: f32 = 120.0; // Maximum field of view (degrees)
 
 /// System to handle camera movement based on keyboard input
 pub fn camera_movement_system(

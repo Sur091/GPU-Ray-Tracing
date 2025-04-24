@@ -47,15 +47,10 @@ pub fn run() {
         // Add camera movement systems
         .add_systems(
             Update,
-            (
-                camera::extract_camera,
-                camera::camera_movement_system,
-                camera::camera_mouse_controls_system,
-            ),
+            (camera::extract_camera, camera::camera_movement_system),
         )
         .run();
 }
-
 
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     // Initialize camera settings

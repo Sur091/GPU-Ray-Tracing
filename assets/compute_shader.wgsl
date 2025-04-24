@@ -4,14 +4,41 @@
 @group(0) @binding(0) var input: texture_storage_2d<rgba32float, read>;
 @group(0) @binding(1) var output: texture_storage_2d<rgba32float, write>;
 
-// Camera uniform buffer
 struct SceneCamera {
-    position: vec3<f32>,
-    focal_length: f32,
-    view_direction: vec3<f32>,
-    field_of_view: f32,
-    reset_seed_depth_samples: vec4<f32>, // x: reset flag, y: random_seed, z: MAX_DEPTH, w: samples
+    center: vec3<f32>,
+    viewport_height: f32,
+    
+    viewport_upper_left: vec3<f32>,
+    viewport_width: f32,
+    
+    pixel_delta_u: vec3<f32>,
+    defocus_angle: f32,
+    
+    pixel_delta_v: vec3<f32>,
+    aspect_ratio: f32,
+    
+    defocus_disk_u: vec3<f32>,
+    _padding0: f32,
+    
+    viewport_u: vec3<f32>,
+    _padding1: f32,
+    
+    defocus_disk_v: vec3<f32>,
+    max_depth: f32,
+    
+    look_from: vec3<f32>,
+    samples_per_pixel: f32,
+    
+    look_at: vec3<f32>,
+    camera_has_moved: f32, // 0.0 means has not moved, 1.0 means has moved
+    
+    vup: vec3<f32>,
+    random_seed: f32,
+    
+    viewport_v: vec3<f32>,
+    defocus_radius: f32,
 }
+
 @group(1) @binding(0) var<uniform> camera: SceneCamera;
 
 // Random number utilities
@@ -233,7 +260,7 @@ fn random_in_hemisphere(normal: vec3<f32>, seed: u32) -> vec3<f32> {
 fn ray_color(ray: Ray, sphere_list: ptr<function, SphereList>, seed: u32) -> vec3<f32> {
     var r = ray;
     var color_factor = vec3<f32>(1.0);
-    for (var i: u32 = 0; i < u32(camera.reset_seed_depth_samples.z); i++) {
+    for (var i: u32 = 0; i < u32(camera.max_depth); i++) {
         var hit_record = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false, Material(vec4<f32>(0.0)));
         let t = sphere_list_hit(sphere_list, r, 0.001, 3.4e35, &hit_record);
         if t {
@@ -274,57 +301,39 @@ fn sample_square(seed: u32) -> vec3<f32> {
     return vec3<f32>(x, y, 0.0);
 }
 
-fn get_ray(location: vec2<i32>, viewport_upper_left: vec3<f32>, pixel_delta_u: vec3<f32>, pixel_delta_v: vec3<f32>, camera_center: vec3<f32>, sample_index: u32) -> Ray {
+fn get_ray(
+    location: vec2<i32>,
+    sample_index: u32
+) -> Ray {
     let seed = hash(hash(u32(location.x) * 73u) ^
                (hash(u32(location.y) * 51u)) ^
-               (sample_index * 25u + u32(camera.reset_seed_depth_samples.y * 4294967295.0)));
+               (sample_index * 25u + u32(camera.random_seed * 4294967295.0)));
     let offset = sample_square(seed);
 
     // Calculate pixel center
-    let pixel_center = viewport_upper_left
-        + pixel_delta_u * (f32(location.x) + 0.5 + offset.x)
-        + pixel_delta_v * (f32(location.y) + 0.5 + offset.y);
+    let pixel_center = camera.viewport_upper_left
+        + camera.pixel_delta_u * (f32(location.x) + 0.5 + offset.x)
+        + camera.pixel_delta_v * (f32(location.y) + 0.5 + offset.y);
+    
+    // let ray_origin = select(camera.center, defocus_disk_sample(seed+1u), camera.defocus_angle <= 0.0);
+    let ray_origin = defocus_disk_sample(seed+30u);
 
-    let ray_direction = pixel_center - camera_center;
+    let ray_direction = pixel_center - ray_origin;
 
-    return Ray(camera_center, ray_direction);
+    return Ray(ray_origin, ray_direction);
+}
+
+fn defocus_disk_sample(seed: u32) -> vec3<f32> {
+    let angle = 2.0 * 3.1415926 * random_float(seed);
+    let p = normalize(vec2<f32>(cos(angle), sin(angle)));
+    return camera.center + (p.x * camera.defocus_disk_u) + (p.y * camera.defocus_disk_v);
 }
 
 @compute @workgroup_size(8, 8, 1)
 fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     let location = vec2<i32>(i32(invocation_id.x), i32(invocation_id.y));
     let size = textureDimensions(output);
-    let aspect_ratio = f32(size.x) / f32(size.y);
-
-    // Use camera data from uniform buffer
-    let focal_length = camera.focal_length;
-    let h = tan(radians(camera.field_of_view / 2.0));
-    let viewport_height = 2.0 * h * focal_length;
-    let viewport_width = viewport_height * aspect_ratio;
-    let camera_center = camera.position;
-
-    // Calculate viewport vectors
-    // Use view direction to calculate viewport orientation
-    let w = normalize(-camera.view_direction);
-    let up = vec3<f32>(0.0, 1.0, 0.0);
-    let u = normalize(cross(up, w));
-    let v = cross(w, u);
-
-    let viewport_u = viewport_width * u;
-    let viewport_v = -viewport_height * v; // Negative to flip y-axis
-
-    // Calculate pixel deltas
-    let pixel_delta_u = viewport_u / f32(size.x);
-    let pixel_delta_v = viewport_v / f32(size.y);
-
-    // Calculate viewport upper left corner
-    let viewport_upper_left = camera_center
-        - viewport_u / 2.0
-        - viewport_v / 2.0
-        - focal_length * w;
-
-
-
+    
     // Check the progress
     let progress = textureLoad(input, location);
     var color_until_now = progress.xyz;
@@ -347,9 +356,9 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
 
     var sphere_list = SphereList(array<Sphere, NUMBER_OF_SPHERES>(sphere1, sphere2, sphere3, sphere4, sphere5));
 
-    let samples_per_pixel = u32(camera.reset_seed_depth_samples.w);
-    
-    let reset = camera.reset_seed_depth_samples.x > 0.5;
+    let samples_per_pixel = u32(camera.samples_per_pixel);
+
+    let reset = camera.camera_has_moved > 0.5;
     
     if (reset) {
         color_until_now = vec3<f32>(0.0);
@@ -357,8 +366,8 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     }
 
     if (samples_until_now < samples_per_pixel) {
-        let seed = 1u + samples_until_now + u32(camera.reset_seed_depth_samples.y * 4294967295.0);
-        let ray = get_ray(location, viewport_upper_left, pixel_delta_u, pixel_delta_v, camera_center, seed);
+        let seed = 1u + samples_until_now + u32(camera.random_seed * 4294967295.0);
+        let ray = get_ray(location, seed);
         let color = ray_color(ray, &sphere_list, seed+1u);
         color_until_now += (color - color_until_now) / f32(samples_until_now + 1u);
         samples_until_now += 1u;

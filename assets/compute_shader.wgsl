@@ -6,40 +6,45 @@
 
 struct SceneCamera {
     center: vec3<f32>,
-    viewport_height: f32,
-    
+    viewport_height: f32,   // No uses
+
     viewport_upper_left: vec3<f32>,
-    viewport_width: f32,
-    
+    viewport_width: f32,     // No uses
+
     pixel_delta_u: vec3<f32>,
     defocus_angle: f32,
-    
+
     pixel_delta_v: vec3<f32>,
-    aspect_ratio: f32,
-    
+    aspect_ratio: f32,       // No uses
+
     defocus_disk_u: vec3<f32>,
     _padding0: f32,
-    
-    viewport_u: vec3<f32>,
+
+    viewport_u: vec3<f32>,   // No uses
     _padding1: f32,
-    
+
     defocus_disk_v: vec3<f32>,
     max_depth: f32,
-    
-    look_from: vec3<f32>,
+
+    look_from: vec3<f32>,  // No uses
     samples_per_pixel: f32,
-    
-    look_at: vec3<f32>,
-    camera_has_moved: f32, // 0.0 means has not moved, 1.0 means has moved
-    
-    vup: vec3<f32>,
+
+    look_at: vec3<f32>,    // No uses
+    camera_has_moved: f32,
+
+    vup: vec3<f32>,   // No uses
     random_seed: f32,
-    
-    viewport_v: vec3<f32>,
-    defocus_radius: f32,
+
+    viewport_v: vec3<f32>,  // No uses
+    defocus_radius: f32     // No uses
 }
 
 @group(1) @binding(0) var<uniform> camera: SceneCamera;
+
+
+// Sphere data
+@group(2) @binding(0) var<uniform> sphere_count: u32;
+@group(2) @binding(1) var<storage, read_write> spheres: array<Sphere>;
 
 // Random number utilities
 fn hash(value: u32) -> u32 {
@@ -149,10 +154,6 @@ struct Sphere {
     material: Material
 }
 
-const NUMBER_OF_SPHERES = 5;
-struct SphereList {
-    spheres: array<Sphere, NUMBER_OF_SPHERES>
-}
 
 fn hit_record_set_face_normal(rec: ptr<function, HitRecord>, r: Ray, outward_normal: vec3<f32>) {
     let front_face = dot(r.direction, outward_normal) < 0.0;
@@ -160,13 +161,13 @@ fn hit_record_set_face_normal(rec: ptr<function, HitRecord>, r: Ray, outward_nor
     *rec = HitRecord((*rec).t, (*rec).p, normal, front_face, (*rec).material);
 }
 
-fn sphere_list_hit(sphere_list: ptr<function, SphereList>, r: Ray, ray_tmin: f32, ray_tmax: f32, rec: ptr<function, HitRecord>) -> bool {
+fn sphere_list_hit(r: Ray, ray_tmin: f32, ray_tmax: f32, rec: ptr<function, HitRecord>) -> bool {
     var temp_rec = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false, Material(vec4<f32>(0.0)));
     var hit_anything = false;
     var closest_so_far = ray_tmax;
 
-    for (var i = 0; i < NUMBER_OF_SPHERES; i++) {
-        let sphere = (*sphere_list).spheres[i];  // Dereference the pointer here
+    for (var i: u32 = 0u; i < sphere_count; i++) {
+        let sphere = spheres[i];  // Dereference the pointer here
         let hit = sphere_hit(sphere, r, ray_tmin, closest_so_far, &temp_rec);
         if hit {
             hit_anything = true;
@@ -257,12 +258,12 @@ fn random_in_hemisphere(normal: vec3<f32>, seed: u32) -> vec3<f32> {
     }
 }
 
-fn ray_color(ray: Ray, sphere_list: ptr<function, SphereList>, seed: u32) -> vec3<f32> {
+fn ray_color(ray: Ray, seed: u32) -> vec3<f32> {
     var r = ray;
     var color_factor = vec3<f32>(1.0);
     for (var i: u32 = 0; i < u32(camera.max_depth); i++) {
         var hit_record = HitRecord(0.0, vec3<f32>(0.0), vec3<f32>(0.0), false, Material(vec4<f32>(0.0)));
-        let t = sphere_list_hit(sphere_list, r, 0.001, 3.4e35, &hit_record);
+        let t = sphere_list_hit(r, 0.001, 3.4e35, &hit_record);
         if t {
             let seed = hash(seed + i * 1000u);
             var scattered = Ray(vec3<f32>(0.0), vec3<f32>(0.0));
@@ -314,7 +315,7 @@ fn get_ray(
     let pixel_center = camera.viewport_upper_left
         + camera.pixel_delta_u * (f32(location.x) + 0.5 + offset.x)
         + camera.pixel_delta_v * (f32(location.y) + 0.5 + offset.y);
-    
+
     let ray_origin = select(camera.center, defocus_disk_sample(seed+1u), camera.defocus_angle > 0.0);
     // let ray_origin = defocus_disk_sample(seed+30u);
 
@@ -333,45 +334,30 @@ fn defocus_disk_sample(seed: u32) -> vec3<f32> {
 fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     let location = vec2<i32>(i32(invocation_id.x), i32(invocation_id.y));
     let size = textureDimensions(output);
-    
-    // Check the progress
+
+
     let progress = textureLoad(input, location);
     var color_until_now = progress.xyz;
-    var samples_until_now = u32(progress.w);
-
-
-    let material_ground = Material(vec4<f32>(0.8, 0.8, 0.0, -2.0));
-    let material_center = Material(vec4<f32>(0.1, 0.2, 0.5, -2.0));
-    // Glass sphere with refractive index 1.5 (typical for glass)
-    let material_left   = Material(vec4<f32>(1.5, 0.0, 0.0, 2.0));
-    // Hollow sphere (air bubble) with refractive index 1.0/1.5
-    let material_bubble = Material(vec4<f32>(1.0/1.5, 0.0, 0.0, 2.0));
-    let material_right  = Material(vec4<f32>(0.8, 0.6, 0.2, 1.0));
-
-    let sphere2 = Sphere(vec3<f32>(0.0, -100.5, -1.0), 100.0, material_ground);
-    let sphere1 = Sphere(vec3<f32>(0.0, 0.0, -1.2), 0.5, material_center);
-    let sphere3 = Sphere(vec3<f32>(-1.0, 0.0, -1.0), 0.5, material_left);
-    let sphere4 = Sphere(vec3<f32>(-1.0, 0.0, -1.0), 0.4, material_bubble);
-    let sphere5 = Sphere(vec3<f32>(1.0, 0.0, -1.0), 0.5, material_right);
-
-    var sphere_list = SphereList(array<Sphere, NUMBER_OF_SPHERES>(sphere1, sphere2, sphere3, sphere4, sphere5));
+    var samples_until_now: u32 = u32(progress.w);
 
     let samples_per_pixel = u32(camera.samples_per_pixel);
 
     let reset = camera.camera_has_moved > 0.5;
-    
+
     if (reset) {
         color_until_now = vec3<f32>(0.0);
-        samples_until_now = 1u;
+        samples_until_now = 0u;
     }
 
     if (samples_until_now < samples_per_pixel) {
         let seed = 1u + samples_until_now + u32(camera.random_seed * 4294967295.0);
         let ray = get_ray(location, seed);
-        let color = ray_color(ray, &sphere_list, seed+1u);
+        let color = ray_color(ray, seed+1u);
         color_until_now += (color - color_until_now) / f32(samples_until_now + 1u);
         samples_until_now += 1u;
     }
+
+
 
     let final_color = vec4<f32>(color_until_now, f32(samples_until_now));
     textureStore(output, location, final_color);

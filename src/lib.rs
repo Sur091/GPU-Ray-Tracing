@@ -10,9 +10,13 @@ use bevy::{
         Render, RenderApp, RenderSet,
     },
 };
+use scene::sphere::SpheresPlugin;
 use std::borrow::Cow;
 
 mod camera;
+mod scene {
+    pub mod sphere;
+}
 
 /// This example uses a shader source file from the assets subdirectory
 const SHADER_ASSET_PATH: &str = "compute_shader.wgsl";
@@ -41,6 +45,7 @@ pub fn run() {
                 })
                 .set(ImagePlugin::default_nearest()),
             ComputeShaderComputePlugin,
+            SpheresPlugin,
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, switch_textures)
@@ -115,6 +120,7 @@ impl Plugin for ComputeShaderComputePlugin {
             (
                 prepare_bind_group.in_set(RenderSet::PrepareBindGroups),
                 prepare_camera_bind_group.in_set(RenderSet::PrepareBindGroups),
+                prepare_sphere_buffer.in_set(RenderSet::PrepareBindGroups),
             ),
         );
 
@@ -139,6 +145,8 @@ struct ComputeShaderImages {
 struct ComputeShaderImageBindGroups([BindGroup; 2]);
 #[derive(Resource)]
 struct CameraBindGroup(BindGroup);
+#[derive(Resource)]
+struct SphereBindGroup(BindGroup);
 
 fn prepare_camera_bind_group(
     mut commands: Commands,
@@ -164,6 +172,38 @@ fn prepare_camera_bind_group(
     );
 
     commands.insert_resource(CameraBindGroup(bind_group));
+}
+
+fn prepare_sphere_buffer(
+    mut commands: Commands,
+    pipeline: Res<ComputeShaderPipeline>,
+    spheres: Res<scene::sphere::SphereCollection>,
+    render_device: Res<RenderDevice>,
+) {
+    // Create a buffer for the sphere data
+    let sphere_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("Sphere Buffer"),
+        contents: bytemuck::cast_slice(&spheres.spheres),
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+    });
+
+    let count_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("Sphere Count Buffer"),
+        contents: bytemuck::cast_slice(&[spheres.count]),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+
+    // Create a bind group for the sphere buffer
+    let sphere_bind_group = render_device.create_bind_group(
+        Some("Sphere Bind Group"),
+        &pipeline.sphere_bind_group_layout,
+        &BindGroupEntries::sequential((
+            count_buffer.as_entire_binding(),
+            sphere_buffer.as_entire_binding(),
+        )),
+    );
+
+    commands.insert_resource(SphereBindGroup(sphere_bind_group));
 }
 
 fn prepare_bind_group(
@@ -192,6 +232,7 @@ fn prepare_bind_group(
 struct ComputeShaderPipeline {
     texture_bind_group_layout: BindGroupLayout,
     camera_bind_group_layout: BindGroupLayout,
+    sphere_bind_group_layout: BindGroupLayout,
     init_pipeline: CachedComputePipelineId,
     update_pipeline: CachedComputePipelineId,
 }
@@ -225,6 +266,22 @@ impl FromWorld for ComputeShaderPipeline {
                 ),
             ),
         );
+
+        // Sphere bind group layout
+        let sphere_bind_group_layout = render_device.create_bind_group_layout(
+            "SpheresLayout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    // Number of spheres as a uniform
+                    bevy::render::render_resource::binding_types::uniform_buffer::<u32>(false),
+                    // Storage buffer for spheres
+                    bevy::render::render_resource::binding_types::storage_buffer::<
+                        scene::sphere::GpuSphere,
+                    >(false),
+                ),
+            ),
+        );
         let shader = world.load_asset(SHADER_ASSET_PATH);
         let pipeline_cache = world.resource::<PipelineCache>();
         let init_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
@@ -232,7 +289,9 @@ impl FromWorld for ComputeShaderPipeline {
             layout: vec![
                 texture_bind_group_layout.clone(),
                 camera_bind_group_layout.clone(),
+                sphere_bind_group_layout.clone(),
             ],
+
             push_constant_ranges: Vec::new(),
             shader: shader.clone(),
             shader_defs: vec![],
@@ -244,7 +303,9 @@ impl FromWorld for ComputeShaderPipeline {
             layout: vec![
                 texture_bind_group_layout.clone(),
                 camera_bind_group_layout.clone(),
+                sphere_bind_group_layout.clone(),
             ],
+
             push_constant_ranges: Vec::new(),
             shader,
             shader_defs: vec![],
@@ -255,6 +316,7 @@ impl FromWorld for ComputeShaderPipeline {
         ComputeShaderPipeline {
             texture_bind_group_layout,
             camera_bind_group_layout,
+            sphere_bind_group_layout,
             init_pipeline,
             update_pipeline,
         }
@@ -322,6 +384,7 @@ impl render_graph::Node for ComputeShaderNode {
     ) -> Result<(), render_graph::NodeRunError> {
         let bind_groups = &world.resource::<ComputeShaderImageBindGroups>().0;
         let camera_bind_group = &world.resource::<CameraBindGroup>().0;
+        let sphere_bind_group = &world.resource::<SphereBindGroup>().0;
         let pipeline_cache = world.resource::<PipelineCache>();
         let pipeline = world.resource::<ComputeShaderPipeline>();
 
@@ -338,6 +401,7 @@ impl render_graph::Node for ComputeShaderNode {
                     .unwrap();
                 pass.set_bind_group(0, &bind_groups[0], &[]);
                 pass.set_bind_group(1, camera_bind_group, &[]);
+                pass.set_bind_group(2, sphere_bind_group, &[]);
                 pass.set_pipeline(init_pipeline);
                 pass.dispatch_workgroups(SIZE.0 / WORKGROUP_SIZE, SIZE.1 / WORKGROUP_SIZE, 1);
             }
@@ -347,6 +411,7 @@ impl render_graph::Node for ComputeShaderNode {
                     .unwrap();
                 pass.set_bind_group(0, &bind_groups[index], &[]);
                 pass.set_bind_group(1, camera_bind_group, &[]);
+                pass.set_bind_group(2, sphere_bind_group, &[]);
                 pass.set_pipeline(update_pipeline);
                 pass.dispatch_workgroups(SIZE.0 / WORKGROUP_SIZE, SIZE.1 / WORKGROUP_SIZE, 1);
             }

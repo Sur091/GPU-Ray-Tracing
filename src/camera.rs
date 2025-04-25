@@ -30,15 +30,17 @@ pub struct CameraSettings {
 impl Default for CameraSettings {
     fn default() -> Self {
         Self {
-            samples_per_pixel: 200,
+            samples_per_pixel: 500,
+            max_depth: 30,
             camera_has_moved: true, // Start with reset flag on to render first frame
-            max_depth: 50,
-            vup: Vec3::new(0.0, 1.0, 0.0),
+            
             field_of_view: 20.0,
-            look_from: Vec3::new(-2.0, 2.0, 1.0),
-            look_at: Vec3::new(0.0, 0.0, -1.0),
-            defocus_angle: 10.0,
-            focus_distance: 3.4,
+            look_from: Vec3::new(13.0, 2.0, 3.0),
+            look_at: Vec3::new(0.0, 0.0, 0.0),
+            vup: Vec3::new(0.0, 1.0, 0.0),
+            
+            defocus_angle: 0.6,
+            focus_distance: 10.0,
         }
     }
 }

@@ -1,104 +1,67 @@
 # GPU Ray Tracing in Bevy
 
-A real-time ray tracing implementation using Bevy's compute shaders, rendering directly on the GPU.
+A real-time ray tracing implementation using **Bevy's compute shaders**, rendering directly on the GPU. This project translates the principles of *"Ray Tracing in One Weekend"* into a high-performance, parallelized WGSL pipeline.
 
-## Overview
+##  Features
 
-This project demonstrates how to implement a basic ray tracer that runs entirely on the GPU using Bevy's compute shader system. It renders a 3D scene with spheres and sky background using the classic ray tracing algorithm, with all computation happening on the graphics card for maximum performance.
+- **Real-time GPU Rendering:** Massive parallelization of ray-pixel calculations using Bevy’s compute shader system.
+- **Advanced Material Modeling:**
+    - **Lambertian (Diffuse):** Realistic matte surfaces with soft shading.
+    - **Metallic:** Reflective surfaces with adjustable fuzziness.
+    - **Dielectric:** Transparent materials (glass/water) with refraction and Total Internal Reflection.
+- **Customizable Camera:** Full support for view transformations, field of view (FOV) adjustments, and depth of field (defocus blur).
+- **Anti-Aliasing:** Multi-sampling per pixel implemented within the shader to produce smooth gradients and eliminate jagged edges.
+- **Rust Integration:** Leverages the Bevy engine for efficient resource binding and scene management.
 
-## Features
+##  Screenshots
 
-- Real-time ray tracing on the GPU
-- Sphere intersection and shading
-- Sky gradient background
-- Camera movement with proper view transformation
-- Fully shader-based rendering pipeline
-- Integration with Bevy engine
+### Implementation Logic
+The engine uses ray-sphere intersection logic and calculates surface normals to determine shading and geometry mapping in 3D space.
 
-## Screenshots
+| Ray Tracing Model | Normal Vector Visualization |
+| :---: | :---: |
+| ![Ray Tracing Logic](ray_tracing_model.png) | ![Sphere Normals](sphere_normal_vectors.png) |
 
-*[Screenshots would be placed here]*
+### Material & Physics Testing
+The project includes tests for various material properties, including refractive indices for dielectrics and reflective fuzziness for metals.
 
-## Requirements
+| Dielectric, Diffuse, & Metallic | High-Sample Anti-Aliasing |
+| :---: | :---: |
+| ![Materials](dielectirc_diffuse_metallic.jpg) | ![AA Test](antialiasing.png) |
 
-- Rust (stable channel)
-- A GPU that supports compute shaders
-- Cargo package manager
+### Final Scenes
+The following renders demonstrate the engine's ability to handle high-density scenes with varying materials and camera angles.
 
-## Getting Started
-
-### Installation
-
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/gpu_ray_tracing.git
-   cd gpu_ray_tracing
-   ```
-
-2. Build and run:
-   ```
-   cargo run --release
-   ```
+![Full Scene](full_scene.jpg)
+![Camera Angle](camera_angle.jpg)
 
 ## How It Works
 
-The ray tracer works by:
+1. **Compute Shader Pipeline:** A compute shader is set up to render directly to a texture on the GPU.
+2. **WGSL Kernels:** The core ray tracing algorithm (ray casting, intersection, and coloring) is executed in parallel across GPU cores.
+3. **Core Components:**
+    - `compute_shader.rs`: Manages the pipeline and GPU resource binding.
+    - `camera.rs`: Handles the camera structure and view transformations.
+    - `scene.rs`: Manages scene objects and extracts data for the GPU.
+    - `compute_shader_example.wgsl`: The shader code performing the actual ray tracing logic.
 
-1. Setting up a compute shader pipeline that renders to a texture
-2. For each pixel in the output image:
-   - Calculating a ray from the camera through that pixel
-   - Testing for intersections with spheres in the scene
-   - Determining the color based on hit normals or sky gradient
-   - Writing the resulting color to the output texture
+##  Getting Started
 
-The main components include:
+### Requirements
+- **Rust** (Stable channel)
+- A GPU supporting **Compute Shaders**
+- **Cargo** package manager
 
-- `compute_shader.rs`: Sets up the compute shader pipeline and handles GPU resource binding
-- `camera.rs`: Defines the camera structure that's passed to the shader
-- `scene.rs`: Manages scene objects and camera extraction
-- `compute_shader_example.wgsl`: The shader that performs the actual ray tracing
-
-## Controls
-
-*[If there are any controls for moving the camera or interacting with the scene, list them here]*
-
-## Implementation Details
-
-### Ray Tracing Algorithm
-
-The implementation follows the ray tracing approach described in "Ray Tracing in One Weekend" by Peter Shirley:
-- Rays are cast from the camera through each pixel
-- Sphere intersection tests determine what objects are visible
-- Surface normals provide simple shading
-- A sky gradient appears when rays miss all objects
-
-### GPU Acceleration
-
-Rather than tracing rays on the CPU, this project:
-- Uses WGSL compute shaders to trace rays in parallel
-- Exploits GPU cores for massive parallelization
-- Renders directly to a texture that's displayed on screen
-
-## Future Improvements
-
-- Materials and textures
-- Reflections and refractions
-- Soft shadows
-- Multiple light sources
-- Anti-aliasing
-- More primitive shapes
-
-## License
-
-*[Add your license information here]*
-
-## Acknowledgments
-
-- Inspired by "Ray Tracing in One Weekend" by Peter Shirley
-- Built with the [Bevy](https://bevyengine.org/) game engine
-
----
-
-*This project is for educational purposes to demonstrate GPU ray tracing techniques.*
-
-
+### Installation
+1. Clone the repository:
+   ```bash
+   git clone [https://github.com/Sur091/GPU-Ray-Tracing.git](https://github.com/Sur091/GPU-Ray-Tracing.git)
+   cd GPU-Ray-Tracing
+   ```
+2. Build and Run
+   ```bash
+   cargo run --release
+   ```
+### Acknowledgement
+- Inspired by **Peter Shirley**'s "Ray Tracing in One Weekend".
+- Built with the Bevy Engine

@@ -20,20 +20,20 @@ The engine uses ray-sphere intersection logic and calculates surface normals to 
 
 | Ray Tracing Model | Normal Vector Visualization |
 | :---: | :---: |
-| ![Ray Tracing Logic](ray_tracing_model.png) | ![Sphere Normals](sphere_normal_vectors.png) |
+| ![Ray Tracing Logic](images/ray_tracing_model.png) | ![Sphere Normals](images/sphere_normal_vectors.png) |
 
 ### Material & Physics Testing
 The project includes tests for various material properties, including refractive indices for dielectrics and reflective fuzziness for metals.
 
 | Dielectric, Diffuse, & Metallic | High-Sample Anti-Aliasing |
 | :---: | :---: |
-| ![Materials](dielectirc_diffuse_metallic.jpg) | ![AA Test](antialiasing.png) |
+| ![Materials](images/dielectirc_diffuse_metallic.jpg) | ![AA Test](images/antialiasing.png) |
 
 ### Final Scenes
 The following renders demonstrate the engine's ability to handle high-density scenes with varying materials and camera angles.
 
-![Full Scene](full_scene.jpg)
-![Camera Angle](camera_angle.jpg)
+![Full Scene](images/full_scene.jpg)
+![Camera Angle](images/camera_angle.jpg)
 
 ## How It Works
 

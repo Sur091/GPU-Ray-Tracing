@@ -64,4 +64,4 @@ The following renders demonstrate the engine's ability to handle high-density sc
    ```
 ### Acknowledgement
 - Inspired by **Peter Shirley**'s "Ray Tracing in One Weekend".
-- Built with the ![Bevy Engine](https://bevy.org/)
+- Built with the [Bevy Engine](https://bevy.org/)

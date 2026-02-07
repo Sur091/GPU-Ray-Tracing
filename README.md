@@ -55,7 +55,7 @@ The following renders demonstrate the engine's ability to handle high-density sc
 ### Installation
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/Sur091/GPU-Ray-Tracing.git](https://github.com/Sur091/GPU-Ray-Tracing.git)
+   git clone https://github.com/Sur091/GPU-Ray-Tracing.git
    cd GPU-Ray-Tracing
    ```
 2. Build and Run

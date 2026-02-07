@@ -27,13 +27,13 @@ The project includes tests for various material properties, including refractive
 
 | Dielectric, Diffuse, & Metallic | High-Sample Anti-Aliasing |
 | :---: | :---: |
-| ![Materials](images/dielectirc_diffuse_metallic.jpg) | ![AA Test](images/antialiasing.png) |
+| ![Materials](images/dielectirc_diffuse_metallic.png) | ![AA Test](images/antialiasing.png) |
 
 ### Final Scenes
 The following renders demonstrate the engine's ability to handle high-density scenes with varying materials and camera angles.
 
-![Full Scene](images/full_scene.jpg)
-![Camera Angle](images/camera_angle.jpg)
+![Full Scene](images/full_scene.png)
+![Camera Angle](images/camera_angle.png)
 
 ## How It Works
 
